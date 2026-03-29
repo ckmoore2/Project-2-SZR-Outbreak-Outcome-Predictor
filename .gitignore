@@ -22,3 +22,7 @@ outputs/*.csv
 
 # OS
 .DS_Store
+
+.claude
+!/CLAUDE.md
+.idea

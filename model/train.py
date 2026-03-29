@@ -112,7 +112,7 @@ def run_experiment_a(X_train, X_test, y_reg_train, y_reg_test,
 
     mae, rmse, r2 = regression_metrics(y_reg_test, y_reg_pred)
 
-    log_reg = LogisticRegression(max_iter=1000, random_state=42)
+    log_reg = LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced')
     log_reg.fit(X_train, y_cls_train)
     y_cls_prob = log_reg.predict_proba(X_test)[:, 1]
 
@@ -151,7 +151,7 @@ def train_pytorch_model(model, train_loader, val_loader,
                         epochs=100, lr=1e-3, patience=10):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
-    bce_loss = nn.BCEWithLogitsLoss()
+    bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5.5]))
 
     best_val_loss = float("inf")
     patience_counter = 0

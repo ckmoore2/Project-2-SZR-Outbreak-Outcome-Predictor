@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import streamlit as st
 import torch
 from scipy.integrate import odeint
@@ -143,10 +144,12 @@ if st.button("Predict Outbreak"):
     # -----------------------------------------------------------------------
     # Neural-network prediction
     # -----------------------------------------------------------------------
-    raw_input = np.array([[
+    raw_input = pd.DataFrame([[
         beta, zeta, alpha, initial_population, initial_infected,
         mobility_score, infrastructure_score, health_score,
-    ]], dtype=np.float32)
+    ]], columns=["beta", "zeta", "alpha", "initial_population",
+                 "initial_infected", "mobility_score",
+                 "infrastructure_score", "health_score"])
 
     scaled_input = scaler.transform(raw_input)
     with torch.no_grad():
