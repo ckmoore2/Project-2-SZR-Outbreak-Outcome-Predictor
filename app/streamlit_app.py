@@ -21,12 +21,14 @@ import streamlit as st
 import torch
 from scipy.integrate import odeint
 
-# Allow importing from model/ when running from the project root
+# Allow importing from model/ and data/ when running from the project root
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_APP_DIR)
 sys.path.insert(0, os.path.join(_ROOT, "model"))
+sys.path.insert(0, os.path.join(_ROOT, "data"))
 
-from szr_predictor import SZRPredictor  # noqa: E402
+from szr_predictor import SZRPredictor          # noqa: E402
+from nc_county_profiles import build_hsi_overrides  # noqa: E402
 
 OUTPUTS_DIR = os.path.join(_ROOT, "outputs")
 MODEL_PATH = os.path.join(OUTPUTS_DIR, "best_model.pt")
@@ -97,37 +99,44 @@ def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
 
 
 # ---------------------------------------------------------------------------
-# County profiles
+# County profiles — HSI scores derived from DASC 6010 team data
 # ---------------------------------------------------------------------------
 
-COUNTY_PROFILES = {
+# Base profiles: epidemiological params and populations stay hardcoded.
+# HSI scores (mobility, health, infrastructure) are overwritten below with
+# values derived from the DASC 6010 census-tract CSVs in data/dasc6010/.
+_BASE_PROFILES = {
     "Custom (use sliders)": None,
     "Mecklenburg (Charlotte)": {
         "beta": 0.45, "zeta": 0.08, "alpha": 0.005,
         "initial_population": 1_115_000, "initial_infected": 20,
-        "mobility_score": 0.85, "infrastructure_score": 0.72, "health_score": 0.68,
     },
     "Wake (Raleigh)": {
         "beta": 0.38, "zeta": 0.10, "alpha": 0.005,
         "initial_population": 1_130_000, "initial_infected": 15,
-        "mobility_score": 0.80, "infrastructure_score": 0.78, "health_score": 0.74,
     },
     "Dare (Outer Banks)": {
         "beta": 0.20, "zeta": 0.15, "alpha": 0.005,
         "initial_population": 38_000, "initial_infected": 3,
-        "mobility_score": 0.35, "infrastructure_score": 0.45, "health_score": 0.55,
     },
     "Tyrrell (Rural)": {
         "beta": 0.15, "zeta": 0.18, "alpha": 0.005,
         "initial_population": 4_000, "initial_infected": 1,
-        "mobility_score": 0.20, "infrastructure_score": 0.30, "health_score": 0.40,
     },
     "Robeson (Mixed)": {
         "beta": 0.30, "zeta": 0.12, "alpha": 0.005,
         "initial_population": 130_000, "initial_infected": 8,
-        "mobility_score": 0.55, "infrastructure_score": 0.48, "health_score": 0.42,
     },
 }
+
+# Merge data-derived HSI scores into the base profiles
+_hsi_overrides = build_hsi_overrides()
+COUNTY_PROFILES = {}
+for _name, _base in _BASE_PROFILES.items():
+    if _base is None:
+        COUNTY_PROFILES[_name] = None
+    else:
+        COUNTY_PROFILES[_name] = {**_base, **_hsi_overrides.get(_name, {})}
 
 # ---------------------------------------------------------------------------
 # App layout
@@ -165,7 +174,9 @@ st.sidebar.selectbox(
     on_change=_apply_county_profile,
 )
 st.sidebar.caption(
-    "Parameter estimates derived from NC census data and HSI scoring model"
+    "HSI scores from DASC 6010 team data (nc_health.csv, nc_mobility.csv, "
+    "nc_infrastructure.csv). "
+    "Mobility inverted: 1 − score_M (escape capacity → spread risk)."
 )
 
 beta = st.sidebar.slider(

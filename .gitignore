@@ -20,6 +20,9 @@ outputs/*.pt
 outputs/*.png
 outputs/*.csv
 
+# DASC 6010 source CSVs (large; copy from ~/Desktop/dasc6010-zombie/data/)
+data/dasc6010/*.csv
+
 # OS
 .DS_Store
 

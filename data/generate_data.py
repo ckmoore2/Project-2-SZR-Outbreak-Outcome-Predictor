@@ -81,6 +81,10 @@ def generate_dataset(n_scenarios=10000, seed=42):
     alpha_vals = rng.uniform(0.0001, 0.01, n_scenarios)
     pop_vals = rng.uniform(5000, 1_000_000, n_scenarios)
     infected_vals = rng.uniform(1, 50, n_scenarios)
+    # HSI features — correspond to DASC 6010 HSI categories:
+    #   mobility_score       → Section M (1 − score_M; inverted escape capacity)
+    #   infrastructure_score → Section I (score_I; prepper density, grid independence)
+    #   health_score         → Section H (score_H; obesity, disability, nursing homes)
     mobility_vals = rng.uniform(0.0, 1.0, n_scenarios)
     infrastructure_vals = rng.uniform(0.0, 1.0, n_scenarios)
     health_vals = rng.uniform(0.0, 1.0, n_scenarios)
