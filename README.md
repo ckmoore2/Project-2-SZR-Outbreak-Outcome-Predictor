@@ -1,5 +1,7 @@
 # SZR Outbreak Outcome Predictor
 
+![CI](https://github.com/ckmoore2/Project-2-SZR-Outbreak-Outcome-Predictor/actions/workflows/ci.yml/badge.svg)
+
 A surrogate machine-learning model that predicts zombie outbreak outcomes
 (peak infection rate, time to peak, and containment probability) from SZR
 epidemiological parameters and HSI county-level scores — without running the

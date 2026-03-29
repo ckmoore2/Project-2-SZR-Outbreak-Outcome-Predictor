@@ -112,8 +112,9 @@ def generate_dataset(n_scenarios=10000, seed=42):
 def main():
     import os
 
-    print("Generating SZR synthetic dataset...")
-    df = generate_dataset(n_scenarios=10000)
+    n_scenarios = int(os.environ.get("N_SCENARIOS", 10000))
+    print(f"Generating SZR synthetic dataset ({n_scenarios} scenarios)...")
+    df = generate_dataset(n_scenarios=n_scenarios)
 
     out_path = os.path.join(os.path.dirname(__file__), "szr_synthetic.csv")
     df.to_csv(out_path, index=False)

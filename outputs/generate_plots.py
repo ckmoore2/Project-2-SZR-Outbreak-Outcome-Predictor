@@ -1,5 +1,5 @@
 """
-Generate parity plot and SHAP importance plot for Experiment C model.
+Generate parity plot, SHAP importance plot, and confusion matrix for Experiment C model.
 """
 
 import os
@@ -10,8 +10,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import shap
 import torch
+from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -114,5 +116,41 @@ shap_path = os.path.join(OUTPUTS_DIR, "shap_importance.png")
 fig2.savefig(shap_path, dpi=150)
 plt.close(fig2)
 print(f"  Saved: {shap_path}")
+
+# ---------------------------------------------------------------------------
+# Confusion matrix — containment classifier
+# ---------------------------------------------------------------------------
+print("Generating confusion matrix...")
+
+y_true_cls = y_cls_test.values
+y_cls_prob = torch.sigmoid(torch.FloatTensor(preds[:, 2])).numpy()
+y_cls_pred = (y_cls_prob >= 0.5).astype(int)
+
+cm = confusion_matrix(y_true_cls, y_cls_pred)
+precision = precision_score(y_true_cls, y_cls_pred, zero_division=0)
+recall    = recall_score(y_true_cls, y_cls_pred, zero_division=0)
+f1        = f1_score(y_true_cls, y_cls_pred, zero_division=0)
+
+labels = ["Collapse", "Contained"]
+
+fig3, ax3 = plt.subplots(figsize=(5, 4))
+sns.heatmap(
+    cm, annot=True, fmt="d", cmap="Blues",
+    xticklabels=labels, yticklabels=labels,
+    linewidths=0.5, linecolor="gray",
+    ax=ax3,
+)
+ax3.set_xlabel("Predicted label")
+ax3.set_ylabel("True label")
+ax3.set_title(
+    "Containment Classifier — Test Set Confusion Matrix\n"
+    f"Precision={precision:.3f}  Recall={recall:.3f}  F1={f1:.3f}",
+    fontsize=10,
+)
+fig3.tight_layout()
+cm_path = os.path.join(OUTPUTS_DIR, "confusion_matrix.png")
+fig3.savefig(cm_path, dpi=150)
+plt.close(fig3)
+print(f"  Saved: {cm_path}")
 
 print("\nDone.")
