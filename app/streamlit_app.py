@@ -85,8 +85,12 @@ def szr_odes(y, t, beta, zeta, alpha, N):
 
 
 def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
-                   mobility_score, t_max=180):
-    effective_beta = beta * (1.0 - mobility_score)
+                   mobility_score, infrastructure_score, health_score,
+                   t_max=180):
+    # HSI kappa scaling: higher mean HSI → higher effective transmission.
+    # hsi_normalized = mean of three HSI dimensions, all in [0, 1].
+    hsi_normalized = (mobility_score + infrastructure_score + health_score) / 3.0
+    effective_beta = beta * (1.0 + 0.5 * hsi_normalized)
     N = initial_population
     Z0 = min(initial_infected, N - 1)
     S0 = N - Z0
@@ -139,6 +143,69 @@ for _name, _base in _BASE_PROFILES.items():
         COUNTY_PROFILES[_name] = {**_base, **_hsi_overrides.get(_name, {})}
 
 # ---------------------------------------------------------------------------
+# Zombie type profiles (research-backed parameters)
+# ---------------------------------------------------------------------------
+
+# Only beta, zeta, alpha, mobility_score are written to session_state.
+# source / difficulty / transmission / speed are display-only metadata.
+ZOMBIE_PROFILES = {
+    "Custom (manual sliders)": None,
+    "World War Z — Base Scenario": {
+        "beta": 0.0036, "zeta": 0.80, "alpha": 0.0003, "mobility_score": 0.50,
+        "source": "Witkowski & Blais Bayesian Fit (2013)",
+        "difficulty": "Medium",
+        "transmission": "Bite only",
+        "speed": "Slow / Shambling",
+    },
+    "The Last of Us — Cordyceps": {
+        "beta": 0.0060, "zeta": 0.65, "alpha": 0.0003, "mobility_score": 0.65,
+        "source": "Naughty Dog (2013) / HBO (2023)",
+        "difficulty": "High",
+        "transmission": "Bite + spore (enclosed spaces)",
+        "speed": "Fast (Runners) / Slow (Clickers)",
+    },
+    "The Walking Dead — Walkers": {
+        "beta": 0.0028, "zeta": 0.90, "alpha": 0.0003, "mobility_score": 0.20,
+        "source": "AMC (2010) / Kirkman Comics",
+        "difficulty": "Low",
+        "transmission": "Bite + universal reanimation on death",
+        "speed": "Slow / Shambling",
+    },
+    "28 Days Later — Rage Virus": {
+        "beta": 0.0090, "zeta": 0.50, "alpha": 0.0003, "mobility_score": 0.90,
+        "source": "Boyle (2002) — Rage Virus",
+        "difficulty": "Extreme",
+        "transmission": "Bite + blood contact",
+        "speed": "Running / Sprinting",
+    },
+    "Rabies — Real-World Baseline": {
+        "beta": 0.0005, "zeta": 0.95, "alpha": 0.0003, "mobility_score": 0.10,
+        "source": "CDC Epidemiological Data",
+        "difficulty": "Low — Sanity Check",
+        "transmission": "Bite only",
+        "speed": "Slow / Agitated",
+    },
+}
+
+_DIFFICULTY_COLORS = {
+    "Extreme":           "#d62728",   # red
+    "High":              "#ff7f0e",   # orange
+    "Medium":            "#d4ac0d",   # yellow-gold
+    "Low":               "#2ca02c",   # green
+    "Low — Sanity Check": "#2ca02c",  # green
+}
+
+_DIFFICULTY_BADGE = {
+    "Extreme":           ":red[**Extreme**]",
+    "High":              ":orange[**High**]",
+    "Medium":            ":orange[**Medium**]",   # st doesn't have yellow
+    "Low":               ":green[**Low**]",
+    "Low — Sanity Check": ":green[**Low — Sanity Check**]",
+}
+
+_SESSION_KEYS_ZOMBIE = ("beta", "zeta", "alpha", "mobility_score")
+
+# ---------------------------------------------------------------------------
 # App layout
 # ---------------------------------------------------------------------------
 
@@ -158,6 +225,14 @@ _DEFAULTS = {
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
+st.session_state.setdefault("zombie_profile", "Custom (manual sliders)")
+
+
+def _apply_zombie_profile():
+    profile = ZOMBIE_PROFILES[st.session_state["zombie_profile"]]
+    if profile is not None:
+        for k in _SESSION_KEYS_ZOMBIE:
+            st.session_state[k] = profile[k]
 
 
 def _apply_county_profile():
@@ -166,6 +241,26 @@ def _apply_county_profile():
         for k, v in profile.items():
             st.session_state[k] = v
 
+
+st.sidebar.selectbox(
+    "Zombie outbreak type",
+    options=list(ZOMBIE_PROFILES.keys()),
+    key="zombie_profile",
+    on_change=_apply_zombie_profile,
+)
+
+# Difficulty badge + metadata for selected zombie type
+_zp = ZOMBIE_PROFILES[st.session_state.get("zombie_profile", "Custom (manual sliders)")]
+if _zp is not None:
+    _diff = _zp["difficulty"]
+    st.sidebar.markdown(
+        f"**Difficulty:** {_DIFFICULTY_BADGE.get(_diff, _diff)}  \n"
+        f"**Source:** {_zp['source']}  \n"
+        f"**Transmission:** {_zp['transmission']}  \n"
+        f"**Speed:** {_zp['speed']}"
+    )
+
+st.sidebar.divider()
 
 st.sidebar.selectbox(
     "Quick-load a North Carolina county profile",
@@ -180,14 +275,17 @@ st.sidebar.caption(
 )
 
 beta = st.sidebar.slider(
-    "Transmission rate (β)", min_value=0.001, max_value=0.9,
-    value=0.3, step=0.001, format="%.3f", key="beta",
-    help="Base rate at which susceptibles become zombies per contact."
+    "Transmission rate (β)", min_value=0.0001, max_value=0.9,
+    value=0.3, step=0.0001, format="%.4f", key="beta",
+    help="Base rate at which susceptibles become zombies per contact. "
+         "Zombie profiles range 0.0005 (Rabies) to 0.009 (28 Days Later); "
+         "county profiles range 0.15–0.45."
 )
 zeta = st.sidebar.slider(
-    "Recovery/removal rate (ζ)", min_value=0.001, max_value=0.5,
+    "Recovery/removal rate (ζ)", min_value=0.001, max_value=0.999,
     value=0.1, step=0.001, format="%.3f", key="zeta",
-    help="Rate at which zombies are removed (quarantined/destroyed)."
+    help="Rate at which zombies are removed (quarantined/destroyed). "
+         "Extended to 0.999 to support Walking Dead (0.90) and Rabies (0.95) profiles."
 )
 alpha = st.sidebar.slider(
     "Natural death rate of zombies (α)", min_value=0.0001, max_value=0.01,
@@ -195,9 +293,10 @@ alpha = st.sidebar.slider(
     help="Natural decay rate of the zombie population."
 )
 initial_population = st.sidebar.slider(
-    "Initial population", min_value=5000, max_value=1_200_000,
+    "Initial population", min_value=1000, max_value=1_200_000,
     value=100_000, step=1000, key="initial_population",
-    help="Total county population at outbreak start."
+    help="Total county population at outbreak start. "
+         "Minimum 1,000 to support small rural counties (e.g. Tyrrell, pop. ~4,000)."
 )
 initial_infected = st.sidebar.slider(
     "Initial infected (Z₀)", min_value=1, max_value=50,
@@ -283,7 +382,8 @@ if st.button("Predict Outbreak"):
     st.subheader("ODE Simulation (Ground Truth)")
 
     t, S_frac, Z_frac, R_frac = run_simulation(
-        beta, zeta, alpha, initial_population, initial_infected, mobility_score
+        beta, zeta, alpha, initial_population, initial_infected,
+        mobility_score, infrastructure_score, health_score
     )
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -338,3 +438,72 @@ if st.button("Predict Outbreak"):
         "SHAP values show each feature's push on the prediction away from "
         "the dataset average"
     )
+
+    # -----------------------------------------------------------------------
+    # Outbreak Type Comparison
+    # -----------------------------------------------------------------------
+    county_label = st.session_state.get("county_profile", "Custom (use sliders)")
+    if county_label == "Custom (use sliders)":
+        county_label = "Custom Parameters"
+
+    with st.expander("Outbreak Type Comparison", expanded=False):
+        st.markdown(
+            f"**All 5 Outbreak Scenarios — {county_label}**  \n"
+            "Each scenario uses the zombie type's β, ζ, α, mobility combined "
+            "with the current county population and HSI values."
+        )
+
+        fig_cmp, ax_cmp = plt.subplots(figsize=(9, 5))
+        summary_rows = []
+
+        for zname, zp in ZOMBIE_PROFILES.items():
+            if zp is None:
+                continue
+            diff = zp["difficulty"]
+            color = _DIFFICULTY_COLORS.get(diff, "gray")
+
+            t_c, _, Z_c, _ = run_simulation(
+                zp["beta"], zp["zeta"], zp["alpha"],
+                initial_population, initial_infected,
+                zp["mobility_score"], infrastructure_score, health_score,
+            )
+            peak_z = float(np.max(Z_c))
+            ttp = int(np.argmax(Z_c))
+
+            ax_cmp.plot(t_c, Z_c, label=f"{zname} [{diff}]",
+                        color=color, linewidth=1.8)
+            summary_rows.append({
+                "Scenario": zname,
+                "Peak Z%": f"{peak_z * 100:.2f}%",
+                "Days to Peak": ttp,
+                "Difficulty": diff,
+                "_peak_sort": peak_z,
+            })
+
+        ax_cmp.set_xlabel("Time (days)")
+        ax_cmp.set_ylabel("Zombie fraction of population")
+        ax_cmp.set_title(
+            f"All 5 Outbreak Scenarios — {county_label}\n"
+            f"Population: {initial_population:,}  |  "
+            f"HSI: mob={mobility_score:.2f} infra={infrastructure_score:.2f} "
+            f"health={health_score:.2f}"
+        )
+        ax_cmp.legend(fontsize=8, loc="upper right")
+        ax_cmp.set_ylim(0)
+        fig_cmp.tight_layout()
+        st.pyplot(fig_cmp)
+        plt.close(fig_cmp)
+
+        # Ranked summary table — sorted by peak Z% descending
+        df_summary = (
+            pd.DataFrame(summary_rows)
+            .sort_values("_peak_sort", ascending=False)
+            .drop(columns="_peak_sort")
+            .reset_index(drop=True)
+        )
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+        st.caption(
+            "Parameters from DASC 6010 (CSCI 6010) Zombie Scenarios sheet. "
+            "Witkowski & Blais (2013) Bayesian fit as baseline."
+        )
