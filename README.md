@@ -51,3 +51,40 @@ movement restrictions in the county (0 = unrestricted movement, 1 = full
 lockdown). A higher restriction score therefore reduces the effective
 transmission rate: `effective_β = β × (1 − mobility_score)`.
 
+## Deployment
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated:
+  ```bash
+  gcloud auth login
+  gcloud auth configure-docker
+  ```
+- Model artifacts present locally — run the full pipeline first:
+  ```bash
+  python data/generate_data.py
+  python model/train.py
+  ```
+  `outputs/best_model.pt` and `outputs/scaler.pkl` are baked into the Docker
+  image at build time (they are gitignored but not dockerignored).
+
+### One-line deploy
+
+```bash
+bash deploy.sh
+```
+
+This builds the image with `--platform linux/amd64` (required on Apple Silicon),
+pushes to Google Container Registry, and deploys to Cloud Run in `us-east1`.
+
+### Apple Silicon note
+
+All Docker builds must use `--platform linux/amd64` — both in `deploy.sh` and
+the `FROM` directive in `Dockerfile` — to produce a Cloud Run-compatible image.
+
+### Live URL
+
+<!-- Populated after first deployment -->
+`https://szr-predictor-<hash>-ue.a.run.app`
+

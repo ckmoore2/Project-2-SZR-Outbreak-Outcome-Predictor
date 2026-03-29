@@ -1,0 +1,28 @@
+# Version control
+.git/
+.gitignore
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.idea/
+.vscode/
+
+# Not needed at runtime
+notebooks/
+
+# Regenerated plots (model artifacts .pt/.pkl are intentionally included
+# so the trained model is baked into the image)
+outputs/*.png
+
+# CI/CD and local tooling
+.github/
+.claude/
+deploy.sh
+
+# OS
+.DS_Store

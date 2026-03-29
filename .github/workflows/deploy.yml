@@ -1,0 +1,59 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "model/**"
+
+env:
+  PROJECT_ID: river-yew-486018-v3
+  IMAGE: gcr.io/river-yew-486018-v3/szr-predictor
+  REGION: us-east1
+  SERVICE: szr-predictor
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker to use gcloud credentials
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build --platform linux/amd64 -t "$IMAGE" .
+
+      - name: Push image to Google Container Registry
+        run: docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        run: |
+          URL=$(gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --platform managed \
+            --region "$REGION" \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --project "$PROJECT_ID" \
+            --format "value(status.url)")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Post live URL to workflow summary
+        run: |
+          echo "### Deployment successful" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Live URL:** ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
