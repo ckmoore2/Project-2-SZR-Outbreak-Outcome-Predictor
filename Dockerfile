@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 RUN N_SCENARIOS=2000 python data/generate_data.py
+RUN python data/synthesize_missing_hsi.py
 
 EXPOSE 8080
 

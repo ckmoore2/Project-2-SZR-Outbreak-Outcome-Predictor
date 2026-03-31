@@ -10,3 +10,4 @@ joblib
 shap
 imbalanced-learn
 jupyter
+openpyxl

@@ -87,11 +87,19 @@ def szr_odes(y, t, beta, zeta, alpha, N):
 
 def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
                    mobility_score, infrastructure_score, health_score,
+                   score_E=0.5, score_S=0.5, score_G=0.5,
                    t_max=180):
-    # HSI kappa scaling: higher mean HSI → higher effective transmission.
-    # hsi_normalized = mean of three HSI dimensions, all in [0, 1].
-    hsi_normalized = (mobility_score + infrastructure_score + health_score) / 3.0
-    effective_beta = beta * (1.0 + 0.5 * hsi_normalized)
+    # Full 6-category HSI kappa scaling.
+    # Weights: H=0.20, E=0.10, M=0.15, S=0.25, I=0.15, G=0.15 (sum=1.0)
+    hsi_full = (
+        0.20 * health_score
+        + 0.10 * score_E
+        + 0.15 * mobility_score
+        + 0.25 * score_S
+        + 0.15 * infrastructure_score
+        + 0.15 * score_G
+    )
+    effective_beta = beta * (1.0 + 0.5 * hsi_full)
     N = initial_population
     Z0 = min(initial_infected, N - 1)
     S0 = N - Z0
@@ -223,6 +231,7 @@ _DEFAULTS = {
     "beta": 0.3, "zeta": 0.1, "alpha": 0.005,
     "initial_population": 100_000, "initial_infected": 5,
     "mobility_score": 0.5, "infrastructure_score": 0.5, "health_score": 0.5,
+    "score_E": 0.5, "score_S": 0.5, "score_G": 0.5,
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -274,6 +283,20 @@ st.sidebar.caption(
     "nc_infrastructure.csv). "
     "Mobility inverted: 1 − score_M (escape capacity → spread risk)."
 )
+
+# Data-derived E / S / G scores — shown only for named county profiles
+_selected_county = st.session_state.get("county_profile", "Custom (use sliders)")
+if _selected_county not in (None, "Custom (use sliders)"):
+    _sE = st.session_state.get("score_E", 0.5)
+    _sS = st.session_state.get("score_S", 0.5)
+    _sG = st.session_state.get("score_G", 0.5)
+    st.sidebar.metric("Education score (E)", f"{_sE:.3f}")
+    st.sidebar.metric("Social/Community score (S)", f"{_sS:.3f}")
+    st.sidebar.metric("Geographic score (G)", f"{_sG:.3f}")
+    st.sidebar.caption(
+        "S score = 0.30×veterans + 0.35×gun ownership + "
+        "0.35×hunting licenses (kappa proxies)"
+    )
 
 beta = st.sidebar.slider(
     "Transmission rate (β)", min_value=0.0001, max_value=0.9,
@@ -382,9 +405,14 @@ if st.button("Predict Outbreak"):
     # -----------------------------------------------------------------------
     st.subheader("ODE Simulation (Ground Truth)")
 
+    _score_E = st.session_state.get("score_E", 0.5)
+    _score_S = st.session_state.get("score_S", 0.5)
+    _score_G = st.session_state.get("score_G", 0.5)
+
     t, S_frac, Z_frac, R_frac = run_simulation(
         beta, zeta, alpha, initial_population, initial_infected,
-        mobility_score, infrastructure_score, health_score
+        mobility_score, infrastructure_score, health_score,
+        score_E=_score_E, score_S=_score_S, score_G=_score_G,
     )
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -467,6 +495,7 @@ if st.button("Predict Outbreak"):
                 zp["beta"], zp["zeta"], zp["alpha"],
                 initial_population, initial_infected,
                 zp["mobility_score"], infrastructure_score, health_score,
+                score_E=_score_E, score_S=_score_S, score_G=_score_G,
             )
             peak_z = float(np.max(Z_c))
             ttp = int(np.argmax(Z_c))

@@ -36,6 +36,7 @@ population/beta/zeta/alpha values that remain hardcoded.
 """
 
 import os
+import warnings
 
 import pandas as pd
 
@@ -114,23 +115,72 @@ def _load_scores() -> pd.DataFrame:
     return merged.set_index("county_fips")
 
 
+def _load_esg_scores() -> pd.DataFrame:
+    """
+    Load county-level E, S, G scores from the synthesized CSVs.
+    Returns a DataFrame indexed by 5-digit county FIPS, or an empty DataFrame
+    if the files have not yet been generated (scores default to 0.5 in caller).
+
+    Run  python data/synthesize_missing_hsi.py  to generate these files.
+    """
+    paths = {
+        "score_E": os.path.join(_DASC_DIR, "nc_education.csv"),
+        "score_S": os.path.join(_DASC_DIR, "nc_social.csv"),
+        "score_G": os.path.join(_DASC_DIR, "nc_geographic.csv"),
+    }
+    missing = [p for p in paths.values() if not os.path.exists(p)]
+    if missing:
+        warnings.warn(
+            f"ESG CSV(s) not found: {missing}. "
+            "Run python data/synthesize_missing_hsi.py to generate them. "
+            "score_E / score_S / score_G will default to 0.5.",
+            stacklevel=3,
+        )
+        return pd.DataFrame()
+
+    edu = pd.read_csv(paths["score_E"], dtype={"GEOID": str})[["GEOID", "score_E"]]
+    soc = pd.read_csv(paths["score_S"], dtype={"GEOID": str})[["GEOID", "score_S"]]
+    geo = pd.read_csv(paths["score_G"], dtype={"GEOID": str})[["GEOID", "score_G"]]
+
+    merged = (
+        edu.merge(soc, on="GEOID", how="outer")
+           .merge(geo, on="GEOID", how="outer")
+           .fillna(0.5)
+    )
+    return merged.set_index("GEOID")
+
+
 def build_hsi_overrides() -> dict:
     """
-    Return a dict mapping each county display name to its three HSI scores.
-    Only the keys mobility_score, health_score, and infrastructure_score are
-    included so the caller can safely update() the existing profile dicts.
+    Return a dict mapping each county display name to all six HSI scores:
+      mobility_score, health_score, infrastructure_score (from DASC 6010 CSVs)
+      score_E, score_S, score_G (from synthesize_missing_hsi.py output)
+
+    score_E/S/G default to 0.5 when the synthesized CSVs are absent.
     """
     scores = _load_scores()
+    esg    = _load_esg_scores()
+
     overrides = {}
     for fips, name in _COUNTY_FIPS.items():
         if fips not in scores.index:
             continue
         row = scores.loc[fips]
-        overrides[name] = {
+        hmi = {
             "mobility_score":       float(row["mobility_score"]),
             "health_score":         float(row["health_score"]),
             "infrastructure_score": float(row["infrastructure_score"]),
         }
+        if not esg.empty and fips in esg.index:
+            esg_row = esg.loc[fips]
+            esg_vals = {
+                "score_E": float(esg_row["score_E"]),
+                "score_S": float(esg_row["score_S"]),
+                "score_G": float(esg_row["score_G"]),
+            }
+        else:
+            esg_vals = {"score_E": 0.5, "score_S": 0.5, "score_G": 0.5}
+        overrides[name] = {**hmi, **esg_vals}
     return overrides
 
 
@@ -142,12 +192,16 @@ if __name__ == "__main__":
     overrides = build_hsi_overrides()
 
     print(f"\nMobility source: {scores.attrs.get('mobility_source', 'unknown')}\n")
-    print(f"{'County':<28} {'mobility':>10} {'health':>10} {'infra':>10}")
-    print("-" * 62)
+    print(f"{'County':<28} {'mobility':>8} {'health':>8} {'infra':>8} "
+          f"{'E':>8} {'S':>8} {'G':>8}")
+    print("-" * 82)
     for name, vals in overrides.items():
         print(
             f"{name:<28}"
-            f"  {vals['mobility_score']:>8.4f}"
-            f"  {vals['health_score']:>8.4f}"
-            f"  {vals['infrastructure_score']:>8.4f}"
+            f"  {vals['mobility_score']:>6.4f}"
+            f"  {vals['health_score']:>6.4f}"
+            f"  {vals['infrastructure_score']:>6.4f}"
+            f"  {vals.get('score_E', 0.5):>6.4f}"
+            f"  {vals.get('score_S', 0.5):>6.4f}"
+            f"  {vals.get('score_G', 0.5):>6.4f}"
         )
