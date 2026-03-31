@@ -62,7 +62,8 @@ def load_shap_explainer():
     """Build a DeepExplainer backed by 100 randomly sampled background rows."""
     model, scaler = load_model_and_scaler()
     df = pd.read_csv(_DATA_PATH)
-    bg_rows = df[_FEATURE_COLS].sample(n=100, random_state=42)
+    n_sample = min(100, len(df))
+    bg_rows = df[_FEATURE_COLS].sample(n=n_sample, random_state=42)
     bg_scaled = torch.FloatTensor(scaler.transform(bg_rows))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
