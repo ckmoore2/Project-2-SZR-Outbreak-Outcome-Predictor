@@ -1,6 +1,7 @@
 # SZR Outbreak Outcome Predictor
 
 ![CI](https://github.com/ckmoore2/Project-2-SZR-Outbreak-Outcome-Predictor/actions/workflows/ci.yml/badge.svg)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Cloud%20Run-blue)](https://szr-predictor-889200413982.us-east1.run.app)
 
 A surrogate machine-learning model that predicts zombie outbreak outcomes
 (peak infection rate, time to peak, and containment probability) from SZR
@@ -85,6 +86,5 @@ the `FROM` directive in `Dockerfile` — to produce a Cloud Run-compatible image
 
 ### Live URL
 
-<!-- Populated after first deployment -->
-`https://szr-predictor-<hash>-ue.a.run.app`
+https://szr-predictor-889200413982.us-east1.run.app
 
