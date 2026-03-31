@@ -8,8 +8,8 @@ on:
       - "model/**"
 
 env:
-  PROJECT_ID: river-yew-486018-v3
-  IMAGE: gcr.io/river-yew-486018-v3/szr-predictor
+  PROJECT_ID: szr-outbreak-outcome-predictor
+  IMAGE: gcr.io/szr-outbreak-outcome-predictor/szr-predictor
   REGION: us-east1
   SERVICE: szr-predictor
 

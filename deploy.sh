@@ -4,7 +4,7 @@
 # Usage: bash deploy.sh
 set -euo pipefail
 
-PROJECT_ID=river-yew-486018-v3
+PROJECT_ID=szr-outbreak-outcome-predictor
 IMAGE=gcr.io/$PROJECT_ID/szr-predictor
 
 echo "Building image for linux/amd64..."
