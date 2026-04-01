@@ -14,6 +14,7 @@ import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import shap
@@ -527,7 +528,10 @@ if st.button("Predict Outbreak"):
         ax_cmp.set_xlabel(
             "Time (days) — 1-year simulation window"
         )
-        ax_cmp.set_ylabel("Zombie fraction of population")
+        ax_cmp.set_ylabel("Zombie population (%)")
+        ax_cmp.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(lambda x, _: f"{x*100:.4f}%")
+        )
         ax_cmp.set_title(
             f"All 5 Outbreak Scenarios — {county_label}\n"
             f"Population: {initial_population:,}  |  "
