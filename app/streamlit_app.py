@@ -507,21 +507,26 @@ if st.button("Predict Outbreak"):
                 initial_population, initial_infected,
                 zp["mobility_score"], infrastructure_score, health_score,
                 score_E=_score_E, score_S=_score_S, score_G=_score_G,
+                t_max=1500,
             )
-            peak_z = float(np.max(Z_c))
-            ttp = int(np.argmax(Z_c))
+            peak_z   = float(np.max(Z_c))
+            ttp_idx  = int(np.argmax(Z_c))
+            at_end   = ttp_idx >= len(Z_c) - 1
+            ttp_days = ">1500" if at_end else str(int(t_c[ttp_idx]))
 
             ax_cmp.plot(t_c, Z_c, label=f"{zname} [{diff}]",
                         color=color, linewidth=1.8)
             summary_rows.append({
                 "Scenario": zname,
-                "Peak Z%": f"{peak_z * 100:.2f}%",
-                "Days to Peak": ttp,
+                "Peak Z%": f"{peak_z * 100:.3f}%",
+                "Days to Peak": ttp_days,
                 "Difficulty": diff,
                 "_peak_sort": peak_z,
             })
 
-        ax_cmp.set_xlabel("Time (days)")
+        ax_cmp.set_xlabel(
+            "Time (days) — extended to 1,500 days for Witkowski-Blais parameterization"
+        )
         ax_cmp.set_ylabel("Zombie fraction of population")
         ax_cmp.set_title(
             f"All 5 Outbreak Scenarios — {county_label}\n"
@@ -547,4 +552,9 @@ if st.button("Predict Outbreak"):
         st.caption(
             "Parameters from DASC 6010 (CSCI 6010) Zombie Scenarios sheet. "
             "Witkowski & Blais (2013) Bayesian fit as baseline."
+        )
+        st.info(
+            "**Note:** Witkowski-Blais β values (0.0005–0.009) are ~100× smaller "
+            "than standard epidemic models, reflecting zombie contact dynamics "
+            "from film data. Peaks occur on timescales of months to years, not days."
         )
