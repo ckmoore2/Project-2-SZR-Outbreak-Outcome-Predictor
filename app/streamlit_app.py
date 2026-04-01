@@ -76,12 +76,20 @@ def load_shap_explainer():
 # ---------------------------------------------------------------------------
 
 
-def szr_odes(y, t, beta, zeta, alpha, N):
-    """SZR ODE system with frequency-dependent transmission (S*Z/N)."""
+def szr_odes(y, t, beta_eff, kappa_eff, N):
+    """SZR ODE: DASC 6010 model where removal is contact-proportional.
+
+    κ (kappa) = β × ζ  — removal scales with contacts, not zombie count.
+      dS/dt = -beta_eff * S * Z / N
+      dZ/dt = (beta_eff - kappa_eff) * S * Z / N
+      dR/dt = kappa_eff * S * Z / N
+    Net growth rate = beta * (1 - zeta) * hsi_factor  (positive when zeta < 1).
+    """
     S, Z, R = y
-    dS_dt = -beta * S * Z / N
-    dZ_dt = beta * S * Z / N - zeta * Z - alpha * Z
-    dR_dt = zeta * Z + alpha * Z
+    sz_n = S * Z / N
+    dS_dt = -beta_eff * sz_n
+    dZ_dt = (beta_eff - kappa_eff) * sz_n
+    dR_dt = kappa_eff * sz_n
     return [dS_dt, dZ_dt, dR_dt]
 
 
@@ -89,7 +97,7 @@ def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
                    mobility_score, infrastructure_score, health_score,
                    score_E=0.5, score_S=0.5, score_G=0.5,
                    t_max=180):
-    # Full 6-category HSI kappa scaling.
+    # Full 6-category HSI scaling factor.
     # Weights: H=0.20, E=0.10, M=0.15, S=0.25, I=0.15, G=0.15 (sum=1.0)
     hsi_full = (
         0.20 * health_score
@@ -99,14 +107,17 @@ def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
         + 0.15 * infrastructure_score
         + 0.15 * score_G
     )
-    effective_beta = beta * (1.0 + 0.5 * hsi_full)
+    hsi_factor = 1.0 + 0.5 * hsi_full
+    # DASC 6010 κ = β × ζ; both transmission and removal scale with HSI.
+    beta_eff  = beta * hsi_factor
+    kappa_eff = beta * zeta * hsi_factor   # net growth = beta*(1-zeta)*hsi_factor
     N = initial_population
     Z0 = min(initial_infected, N - 1)
     S0 = N - Z0
     R0 = 0.0
     t = np.linspace(0, t_max, t_max + 1)
     sol = odeint(szr_odes, [S0, Z0, R0], t,
-                 args=(effective_beta, zeta, alpha, N),
+                 args=(beta_eff, kappa_eff, N),
                  mxstep=5000)
     return t, sol[:, 0] / N, sol[:, 1] / N, sol[:, 2] / N
 
