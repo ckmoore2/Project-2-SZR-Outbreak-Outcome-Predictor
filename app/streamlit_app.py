@@ -507,12 +507,12 @@ if st.button("Predict Outbreak"):
                 initial_population, initial_infected,
                 zp["mobility_score"], infrastructure_score, health_score,
                 score_E=_score_E, score_S=_score_S, score_G=_score_G,
-                t_max=1500,
+                t_max=365,
             )
             peak_z   = float(np.max(Z_c))
             ttp_idx  = int(np.argmax(Z_c))
             at_end   = ttp_idx >= len(Z_c) - 1
-            ttp_days = ">1500" if at_end else str(int(t_c[ttp_idx]))
+            ttp_days = ">365" if at_end else str(int(t_c[ttp_idx]))
 
             ax_cmp.plot(t_c, Z_c, label=f"{zname} [{diff}]",
                         color=color, linewidth=1.8)
@@ -525,14 +525,14 @@ if st.button("Predict Outbreak"):
             })
 
         ax_cmp.set_xlabel(
-            "Time (days) — extended to 1,500 days for Witkowski-Blais parameterization"
+            "Time (days) — 1-year simulation window"
         )
         ax_cmp.set_ylabel("Zombie fraction of population")
         ax_cmp.set_title(
             f"All 5 Outbreak Scenarios — {county_label}\n"
             f"Population: {initial_population:,}  |  "
             f"HSI: mob={mobility_score:.2f} infra={infrastructure_score:.2f} "
-            f"health={health_score:.2f}"
+            f"health={health_score:.2f}  |  Window: 365 days"
         )
         ax_cmp.legend(fontsize=8, loc="upper right")
         ax_cmp.set_ylim(0)
@@ -554,7 +554,8 @@ if st.button("Predict Outbreak"):
             "Witkowski & Blais (2013) Bayesian fit as baseline."
         )
         st.info(
-            "**Note:** Witkowski-Blais β values (0.0005–0.009) are ~100× smaller "
-            "than standard epidemic models, reflecting zombie contact dynamics "
-            "from film data. Peaks occur on timescales of months to years, not days."
+            "**Note:** Witkowski-Blais β values (0.0005–0.009) reflect zombie contact "
+            "dynamics fit from film data. At 1-year scale, 28 Days Later shows ~3.5× "
+            "more spread than The Last of Us, illustrating relative danger across "
+            "outbreak types."
         )
