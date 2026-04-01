@@ -17,6 +17,20 @@ analysis in the Streamlit dashboard.
 pip install -r requirements.txt
 ```
 
+## Data
+
+All generated data files are gitignored and must be produced locally before
+running the app or building the Docker image.
+
+| Script | Output | Notes |
+|--------|--------|-------|
+| `python data/generate_data.py` | `data/szr_synthetic.csv` | 10 k ODE simulations (set `N_SCENARIOS=2000` for a faster build) |
+| `python model/train.py` | `outputs/best_model.pt`, `outputs/scaler.pkl` | Trains all ablation experiments; saves best model |
+| `python data/synthesize_missing_hsi.py` | `data/dasc6010/nc_education.csv`<br>`data/dasc6010/nc_social.csv`<br>`data/dasc6010/nc_geographic.csv` | Fetches ACS S1501/S2101/B01003 from Census API (requires internet); computes HSI scores E, S, G for all 100 NC counties |
+
+The Docker build runs all three scripts automatically (`Dockerfile` `RUN` steps),
+so the container is always self-contained regardless of local `.gitignore` rules.
+
 ## Usage
 
 ```bash
