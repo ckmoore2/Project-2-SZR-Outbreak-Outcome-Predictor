@@ -75,7 +75,7 @@ large numbers of scenarios needed evaluation.
 
 ### This Project — What's Different
 
-Project 2 keeps the SZR framework and NC county data from Project 1 and extends
+Project 2 keeps the SZR framework and NC county data from the HSI Scoring System and extends
 it in three directions:
 
 **1. Surrogate ML model replaces the ODE at inference time**
@@ -103,14 +103,14 @@ Two weaknesses in the v1 model are corrected in the `code/` module:
 
 **3. HSI weight sensitivity analysis**
 
-Project 1 assigned category weights (H=0.15, M=0.15, I=0.20, E=0.10, C=0.25,
+HSI assigned category weights (H=0.15, M=0.15, I=0.20, E=0.10, C=0.25,
 G=0.15) by expert judgement. Project 2 adds a systematic sweep (`code/sensitivity_analysis.py`)
 that tests all pairwise weight combinations across three zombie scenarios and
 maps how NC-wide survival fraction responds to weight choices — providing
 empirical justification for the v2 weight adjustments and identifying which
 categories have the largest marginal impact on outcomes.
 
-| Aspect | Project 1 (v1) | Project 2 (v2) |
+| Aspect |HSI (v1) | Project 2 (v2) |
 |--------|---------------|----------------|
 | Inference | ODE at query time | Surrogate MLP (forward pass) |
 | κ modifier | Linear: `1 + 0.5·HSI` | Sigmoid: threshold at HSI=0.5 |
@@ -255,17 +255,17 @@ agriculture sub-factors make the E section more robust.
 New sub-factors are registered in `code/config.py` and fetched by scripts in
 `data/fetch/`. Each entry documents source, direction, and rationale.
 
-| Factor | Category | Owner | Source | Status |
-|--------|----------|-------|--------|--------|
-| Hunting License Density | C | Kiana | NCWRC Annual Report | Manual download needed |
-| Congregation Density | C | Kiana | USDA ERS Rural Atlas | Partial (proxy available) |
-| Volunteer Fire Dept Coverage | C | Kiana | USFA NFIRS | Fetch script ready |
-| Waterway Barrier Score | G | Rebecca | USGS NHD | Manual GIS download |
-| National Forest Proximity | G | Rebecca | USDA Forest Service | Auto-download available |
-| Bridge Chokepoint Density | G | Rebecca | FHWA NBI | Auto-download available |
-| Agricultural Occupation Rate | E | Lennen | ACS C24010 | Census API (key required) |
-| Ham Radio License Density | E | Lennen | FCC ULS | Auto-download available |
-| Physical Inactivity Rate (LPA) | H | Curtis | CDC PLACES 2023 | Ready — not yet extracted |
+| Factor | Category |  | Source | Status |
+|--------|----------|  |--------|--------|
+| Hunting License Density | C | | NCWRC Annual Report | Manual download needed |
+| Congregation Density | C |  | USDA ERS Rural Atlas | Partial (proxy available) |
+| Volunteer Fire Dept Coverage | C |  | USFA NFIRS | Fetch script ready |
+| Waterway Barrier Score | G |  | USGS NHD | Manual GIS download |
+| National Forest Proximity | G |  | USDA Forest Service | Auto-download available |
+| Bridge Chokepoint Density | G |  | FHWA NBI | Auto-download available |
+| Agricultural Occupation Rate | E |  | ACS C24010 | Census API (key required) |
+| Ham Radio License Density | E |  | FCC ULS | Auto-download available |
+| Physical Inactivity Rate (LPA) | H |  | CDC PLACES 2023 | Ready — not yet extracted |
 
 Fetch scripts:
 ```bash
