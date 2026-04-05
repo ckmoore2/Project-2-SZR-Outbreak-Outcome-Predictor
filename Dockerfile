@@ -1,12 +1,17 @@
-FROM --platform=linux/amd64 python:3.11-slim
+# Platform is not hardcoded here — it is set by the build command.
+# Local builds (docker build .) use the host's native architecture.
+# Cloud Run / CI builds pass --platform linux/amd64 via deploy.sh.
+ARG TARGETPLATFORM
+FROM python:3.11-slim
 
 WORKDIR /app
 
 COPY requirements.txt .
 
 # Install CPU-only PyTorch first to avoid pulling the ~2 GB CUDA build
-# from PyPI's default index. Everything else in requirements.txt is then
-# installed in a second pass; pip skips torch because it is already present.
+# from PyPI's default index. The CPU wheel index serves both amd64 and arm64.
+# Everything else in requirements.txt is then installed in a second pass;
+# pip skips torch because it is already present.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -1,565 +1,831 @@
-"""
-Streamlit app for the SZR Outbreak Outcome Predictor.
-
-Run with:
-    streamlit run app/streamlit_app.py
-"""
-
-import os
-import sys
-
-import warnings
-
-import joblib
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.ticker
+import streamlit as st
 import numpy as np
 import pandas as pd
-import shap
-import streamlit as st
 import torch
+import torch.nn as nn
+import joblib
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from scipy.integrate import odeint
+import shap
+import os
 
-# Allow importing from model/ and data/ when running from the project root
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_APP_DIR)
-sys.path.insert(0, os.path.join(_ROOT, "model"))
-sys.path.insert(0, os.path.join(_ROOT, "data"))
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="OUTBREAK RESPONSE TERMINAL",
+    page_icon="☣",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-from szr_predictor import SZRPredictor          # noqa: E402
-from nc_county_profiles import build_hsi_overrides  # noqa: E402
+# ── Terminal CSS ──────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Special+Elite&family=Share+Tech+Mono&display=swap');
 
-OUTPUTS_DIR = os.path.join(_ROOT, "outputs")
-MODEL_PATH = os.path.join(OUTPUTS_DIR, "best_model.pt")
-SCALER_PATH = os.path.join(OUTPUTS_DIR, "scaler.pkl")
+/* ── Global background ─────────────────────────────── */
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    background-color: #0a0a08 !important;
+    color: #c8bfa8 !important;
+    font-family: 'Share Tech Mono', monospace !important;
+}
+/* ── Headers ───────────────────────────────────────── */
+h1 { font-family: 'Special Elite', cursive !important; color: #e8e0d0 !important; letter-spacing: 4px !important; font-size: 1.6rem !important; }
+h2 { font-family: 'Special Elite', cursive !important; color: #cc2200 !important; letter-spacing: 3px !important; font-size: 1.1rem !important; border-bottom: 1px solid rgba(204,34,0,.3); padding-bottom: 6px; }
+h3 { font-family: 'Share Tech Mono', monospace !important; color: #8db829 !important; letter-spacing: 2px !important; font-size: .9rem !important; }
 
-# ---------------------------------------------------------------------------
-# Cached resource loading
-# ---------------------------------------------------------------------------
+/* ── Metric cards ──────────────────────────────────── */
+[data-testid="metric-container"] {
+    background: rgba(204,34,0,.07) !important;
+    border: 1px solid rgba(204,34,0,.3) !important;
+    border-radius: 2px !important;
+    padding: 14px 16px !important;
+}
+[data-testid="metric-container"] label { color: #6b5a48 !important; font-size: .7rem !important; letter-spacing: 2px !important; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #cc2200 !important; font-family: 'Special Elite', cursive !important; font-size: 1.6rem !important; }
+[data-testid="metric-container"] [data-testid="stMetricDelta"] { color: #8db829 !important; }
 
+/* ── Buttons ───────────────────────────────────────── */
+[data-testid="baseButton-primary"], button[kind="primary"] {
+    background: rgba(204,34,0,.15) !important;
+    border: 1px solid rgba(204,34,0,.6) !important;
+    color: #cc2200 !important;
+    font-family: 'Special Elite', cursive !important;
+    letter-spacing: 3px !important;
+    border-radius: 2px !important;
+}
+[data-testid="baseButton-secondary"], button[kind="secondary"] {
+    background: rgba(141,184,41,.08) !important;
+    border: 1px solid rgba(141,184,41,.4) !important;
+    color: #8db829 !important;
+    font-family: 'Share Tech Mono', monospace !important;
+    border-radius: 2px !important;
+}
+
+/* ── Sliders ───────────────────────────────────────── */
+[data-testid="stSlider"] { accent-color: #8db829; }
+[data-testid="stSlider"] p { color: #8b8070 !important; font-size: .75rem !important; letter-spacing: 1px !important; }
+
+/* ── Divider ───────────────────────────────────────── */
+hr { border-color: rgba(204,34,0,.25) !important; }
+
+/* ── Progress bar ──────────────────────────────────── */
+[data-testid="stProgress"] > div > div { background: #8db829 !important; }
+
+/* ── Info / warning boxes ──────────────────────────── */
+[data-testid="stAlert"] {
+    background: rgba(204,34,0,.08) !important;
+    border: 1px solid rgba(204,34,0,.35) !important;
+    border-radius: 2px !important;
+    color: #c8bfa8 !important;
+    font-family: 'Share Tech Mono', monospace !important;
+}
+
+/* ── Expander ──────────────────────────────────────── */
+[data-testid="stExpander"] {
+    border: 1px solid rgba(204,34,0,.2) !important;
+    background: rgba(10,10,8,.9) !important;
+    border-radius: 2px !important;
+}
+
+/* ── Tables / dataframes ───────────────────────────── */
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(204,34,0,.2) !important;
+}
+
+/* ── Hide Streamlit top white header bar ───────────── */
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+header { display: none !important; height: 0 !important; }
+.main .block-container { padding-top: 0.5rem !important; }
+
+/* ── Scanline overlay ──────────────────────────────── */
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,.04) 2px, rgba(0,0,0,.04) 3px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Model definition (must match train.py) ────────────────────────────────────
+class SZRPredictor(nn.Module):
+    def __init__(self, input_dim=8, hidden_dims=None, output_dim=3, dropout=0.2):
+        super().__init__()
+        if hidden_dims is None:
+            hidden_dims = [64, 128]
+        layers = []
+        prev = input_dim
+        for h in hidden_dims:
+            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
+            prev = h
+        layers.append(nn.Linear(prev, output_dim))
+        self.network = nn.Sequential(*layers)   # must match train.py attribute name
+
+    def forward(self, x):
+        return self.network(x)
+
+
+# ── Load model + scaler ───────────────────────────────────────────────────────
+MODEL_PATH  = os.path.join(os.path.dirname(__file__), "..", "outputs", "best_model.pt")
+SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.pkl")
 
 @st.cache_resource
-def load_model_and_scaler():
-    scaler = joblib.load(SCALER_PATH)
-    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3)
-    model.load_state_dict(
-        torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
-    )
-    model.eval()
-    return model, scaler
-
-
-_FEATURE_COLS = [
-    "beta", "zeta", "alpha", "initial_population", "initial_infected",
-    "mobility_score", "infrastructure_score", "health_score",
-]
-_DATA_PATH = os.path.join(_ROOT, "data", "szr_synthetic.csv")
-
-
-@st.cache_resource
-def load_shap_explainer():
-    """Build a DeepExplainer backed by 100 randomly sampled background rows."""
-    model, scaler = load_model_and_scaler()
-    df = pd.read_csv(_DATA_PATH)
-    n_sample = min(100, len(df))
-    bg_rows = df[_FEATURE_COLS].sample(n=n_sample, random_state=42)
-    bg_scaled = torch.FloatTensor(scaler.transform(bg_rows))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        explainer = shap.DeepExplainer(model, bg_scaled)
-    return explainer
-
-
-# ---------------------------------------------------------------------------
-# SZR ODE simulation
-# ---------------------------------------------------------------------------
-
-
-def szr_odes(y, t, beta_eff, kappa_eff, N):
-    """SZR ODE: DASC 6010 model where removal is contact-proportional.
-
-    κ (kappa) = β × ζ  — removal scales with contacts, not zombie count.
-      dS/dt = -beta_eff * S * Z / N
-      dZ/dt = (beta_eff - kappa_eff) * S * Z / N
-      dR/dt = kappa_eff * S * Z / N
-    Net growth rate = beta * (1 - zeta) * hsi_factor  (positive when zeta < 1).
-    """
-    S, Z, R = y
-    sz_n = S * Z / N
-    dS_dt = -beta_eff * sz_n
-    dZ_dt = (beta_eff - kappa_eff) * sz_n
-    dR_dt = kappa_eff * sz_n
-    return [dS_dt, dZ_dt, dR_dt]
-
-
-def run_simulation(beta, zeta, alpha, initial_population, initial_infected,
-                   mobility_score, infrastructure_score, health_score,
-                   score_E=0.5, score_S=0.5, score_G=0.5,
-                   t_max=180):
-    # Full 6-category HSI scaling factor.
-    # Weights: H=0.20, E=0.10, M=0.15, S=0.25, I=0.15, G=0.15 (sum=1.0)
-    hsi_full = (
-        0.20 * health_score
-        + 0.10 * score_E
-        + 0.15 * mobility_score
-        + 0.25 * score_S
-        + 0.15 * infrastructure_score
-        + 0.15 * score_G
-    )
-    hsi_factor = 1.0 + 0.5 * hsi_full
-    # DASC 6010 κ = β × ζ; both transmission and removal scale with HSI.
-    beta_eff  = beta * hsi_factor
-    kappa_eff = beta * zeta * hsi_factor   # net growth = beta*(1-zeta)*hsi_factor
-    N = initial_population
-    Z0 = min(initial_infected, N - 1)
-    S0 = N - Z0
-    R0 = 0.0
-    t = np.linspace(0, t_max, t_max + 1)
-    sol = odeint(szr_odes, [S0, Z0, R0], t,
-                 args=(beta_eff, kappa_eff, N),
-                 mxstep=5000)
-    return t, sol[:, 0] / N, sol[:, 1] / N, sol[:, 2] / N
-
-
-# ---------------------------------------------------------------------------
-# County profiles — HSI scores derived from DASC 6010 team data
-# ---------------------------------------------------------------------------
-
-# Base profiles: epidemiological params and populations stay hardcoded.
-# HSI scores (mobility, health, infrastructure) are overwritten below with
-# values derived from the DASC 6010 census-tract CSVs in data/dasc6010/.
-_BASE_PROFILES = {
-    "Custom (use sliders)": None,
-    "Mecklenburg (Charlotte)": {
-        "beta": 0.45, "zeta": 0.08, "alpha": 0.005,
-        "initial_population": 1_115_000, "initial_infected": 20,
-    },
-    "Wake (Raleigh)": {
-        "beta": 0.38, "zeta": 0.10, "alpha": 0.005,
-        "initial_population": 1_130_000, "initial_infected": 15,
-    },
-    "Dare (Outer Banks)": {
-        "beta": 0.20, "zeta": 0.15, "alpha": 0.005,
-        "initial_population": 38_000, "initial_infected": 3,
-    },
-    "Tyrrell (Rural)": {
-        "beta": 0.15, "zeta": 0.18, "alpha": 0.005,
-        "initial_population": 4_000, "initial_infected": 1,
-    },
-    "Robeson (Mixed)": {
-        "beta": 0.30, "zeta": 0.12, "alpha": 0.005,
-        "initial_population": 130_000, "initial_infected": 8,
-    },
-}
-
-# Merge data-derived HSI scores into the base profiles
-_hsi_overrides = build_hsi_overrides()
-COUNTY_PROFILES = {}
-for _name, _base in _BASE_PROFILES.items():
-    if _base is None:
-        COUNTY_PROFILES[_name] = None
-    else:
-        COUNTY_PROFILES[_name] = {**_base, **_hsi_overrides.get(_name, {})}
-
-# ---------------------------------------------------------------------------
-# Zombie type profiles (research-backed parameters)
-# ---------------------------------------------------------------------------
-
-# Only beta, zeta, alpha, mobility_score are written to session_state.
-# source / difficulty / transmission / speed are display-only metadata.
-ZOMBIE_PROFILES = {
-    "Custom (manual sliders)": None,
-    "World War Z — Base Scenario": {
-        "beta": 0.0036, "zeta": 0.80, "alpha": 0.0003, "mobility_score": 0.50,
-        "source": "Witkowski & Blais Bayesian Fit (2013)",
-        "difficulty": "Medium",
-        "transmission": "Bite only",
-        "speed": "Slow / Shambling",
-    },
-    "The Last of Us — Cordyceps": {
-        "beta": 0.0060, "zeta": 0.65, "alpha": 0.0003, "mobility_score": 0.65,
-        "source": "Naughty Dog (2013) / HBO (2023)",
-        "difficulty": "High",
-        "transmission": "Bite + spore (enclosed spaces)",
-        "speed": "Fast (Runners) / Slow (Clickers)",
-    },
-    "The Walking Dead — Walkers": {
-        "beta": 0.0028, "zeta": 0.90, "alpha": 0.0003, "mobility_score": 0.20,
-        "source": "AMC (2010) / Kirkman Comics",
-        "difficulty": "Low",
-        "transmission": "Bite + universal reanimation on death",
-        "speed": "Slow / Shambling",
-    },
-    "28 Days Later — Rage Virus": {
-        "beta": 0.0090, "zeta": 0.50, "alpha": 0.0003, "mobility_score": 0.90,
-        "source": "Boyle (2002) — Rage Virus",
-        "difficulty": "Extreme",
-        "transmission": "Bite + blood contact",
-        "speed": "Running / Sprinting",
-    },
-    "Rabies — Real-World Baseline": {
-        "beta": 0.0005, "zeta": 0.95, "alpha": 0.0003, "mobility_score": 0.10,
-        "source": "CDC Epidemiological Data",
-        "difficulty": "Low — Sanity Check",
-        "transmission": "Bite only",
-        "speed": "Slow / Agitated",
-    },
-}
-
-_DIFFICULTY_COLORS = {
-    "Extreme":           "#d62728",   # red
-    "High":              "#ff7f0e",   # orange
-    "Medium":            "#d4ac0d",   # yellow-gold
-    "Low":               "#2ca02c",   # green
-    "Low — Sanity Check": "#2ca02c",  # green
-}
-
-_DIFFICULTY_BADGE = {
-    "Extreme":           ":red[**Extreme**]",
-    "High":              ":orange[**High**]",
-    "Medium":            ":orange[**Medium**]",   # st doesn't have yellow
-    "Low":               ":green[**Low**]",
-    "Low — Sanity Check": ":green[**Low — Sanity Check**]",
-}
-
-_SESSION_KEYS_ZOMBIE = ("beta", "zeta", "alpha", "mobility_score")
-
-# ---------------------------------------------------------------------------
-# App layout
-# ---------------------------------------------------------------------------
-
-st.title("SZR Outbreak Outcome Predictor")
-st.markdown(
-    "Adjust the parameters in the sidebar and click **Predict Outbreak** "
-    "to see neural-network predictions and the ground-truth ODE simulation."
-)
-
-st.sidebar.header("Outbreak Parameters")
-
-# Seed session_state defaults on first render so sliders have a home value
-_DEFAULTS = {
-    "beta": 0.3, "zeta": 0.1, "alpha": 0.005,
-    "initial_population": 100_000, "initial_infected": 5,
-    "mobility_score": 0.5, "infrastructure_score": 0.5, "health_score": 0.5,
-    "score_E": 0.5, "score_S": 0.5, "score_G": 0.5,
-}
-for _k, _v in _DEFAULTS.items():
-    st.session_state.setdefault(_k, _v)
-st.session_state.setdefault("zombie_profile", "Custom (manual sliders)")
-
-
-def _apply_zombie_profile():
-    profile = ZOMBIE_PROFILES[st.session_state["zombie_profile"]]
-    if profile is not None:
-        for k in _SESSION_KEYS_ZOMBIE:
-            st.session_state[k] = profile[k]
-
-
-def _apply_county_profile():
-    profile = COUNTY_PROFILES[st.session_state["county_profile"]]
-    if profile is not None:
-        for k, v in profile.items():
-            st.session_state[k] = v
-
-
-st.sidebar.selectbox(
-    "Zombie outbreak type",
-    options=list(ZOMBIE_PROFILES.keys()),
-    key="zombie_profile",
-    on_change=_apply_zombie_profile,
-)
-
-# Difficulty badge + metadata for selected zombie type
-_zp = ZOMBIE_PROFILES[st.session_state.get("zombie_profile", "Custom (manual sliders)")]
-if _zp is not None:
-    _diff = _zp["difficulty"]
-    st.sidebar.markdown(
-        f"**Difficulty:** {_DIFFICULTY_BADGE.get(_diff, _diff)}  \n"
-        f"**Source:** {_zp['source']}  \n"
-        f"**Transmission:** {_zp['transmission']}  \n"
-        f"**Speed:** {_zp['speed']}"
-    )
-
-st.sidebar.divider()
-
-st.sidebar.selectbox(
-    "Quick-load a North Carolina county profile",
-    options=list(COUNTY_PROFILES.keys()),
-    key="county_profile",
-    on_change=_apply_county_profile,
-)
-st.sidebar.caption(
-    "HSI scores from DASC 6010 team data (nc_health.csv, nc_mobility.csv, "
-    "nc_infrastructure.csv). "
-    "Mobility inverted: 1 − score_M (escape capacity → spread risk)."
-)
-
-# Data-derived E / S / G scores — shown only for named county profiles
-_selected_county = st.session_state.get("county_profile", "Custom (use sliders)")
-if _selected_county not in (None, "Custom (use sliders)"):
-    _sE = st.session_state.get("score_E", 0.5)
-    _sS = st.session_state.get("score_S", 0.5)
-    _sG = st.session_state.get("score_G", 0.5)
-    st.sidebar.metric("Education score (E)", f"{_sE:.3f}")
-    st.sidebar.metric("Social/Community score (S)", f"{_sS:.3f}")
-    st.sidebar.metric("Geographic score (G)", f"{_sG:.3f}")
-    st.sidebar.caption(
-        "S score = 0.30×veterans + 0.35×gun ownership + "
-        "0.35×hunting licenses (kappa proxies)"
-    )
-
-beta = st.sidebar.slider(
-    "Transmission rate (β)", min_value=0.0001, max_value=0.9,
-    value=0.3, step=0.0001, format="%.4f", key="beta",
-    help="Base rate at which susceptibles become zombies per contact. "
-         "Zombie profiles range 0.0005 (Rabies) to 0.009 (28 Days Later); "
-         "county profiles range 0.15–0.45."
-)
-zeta = st.sidebar.slider(
-    "Recovery/removal rate (ζ)", min_value=0.001, max_value=0.999,
-    value=0.1, step=0.001, format="%.3f", key="zeta",
-    help="Rate at which zombies are removed (quarantined/destroyed). "
-         "Extended to 0.999 to support Walking Dead (0.90) and Rabies (0.95) profiles."
-)
-alpha = st.sidebar.slider(
-    "Natural death rate of zombies (α)", min_value=0.0001, max_value=0.01,
-    value=0.005, step=0.0001, format="%.4f", key="alpha",
-    help="Natural decay rate of the zombie population."
-)
-initial_population = st.sidebar.slider(
-    "Initial population", min_value=1000, max_value=1_200_000,
-    value=100_000, step=1000, key="initial_population",
-    help="Total county population at outbreak start. "
-         "Minimum 1,000 to support small rural counties (e.g. Tyrrell, pop. ~4,000)."
-)
-initial_infected = st.sidebar.slider(
-    "Initial infected (Z₀)", min_value=1, max_value=50,
-    value=5, step=1, key="initial_infected",
-    help="Number of zombies at time 0."
-)
-mobility_score = st.sidebar.slider(
-    "Mobility restriction score", min_value=0.0, max_value=1.0,
-    value=0.5, step=0.01, key="mobility_score",
-    help="Higher score → more movement restrictions → less transmission. "
-         "effective β = β × (1 − mobility_score)."
-)
-infrastructure_score = st.sidebar.slider(
-    "Infrastructure score", min_value=0.0, max_value=1.0,
-    value=0.5, step=0.01, key="infrastructure_score",
-    help="HSI: quality of roads, utilities, and logistics."
-)
-health_score = st.sidebar.slider(
-    "Health score", min_value=0.0, max_value=1.0,
-    value=0.5, step=0.01, key="health_score",
-    help="HSI: baseline health-system capacity."
-)
-
-if st.button("Predict Outbreak"):
-    # -----------------------------------------------------------------------
-    # Load artifacts
-    # -----------------------------------------------------------------------
+def load_model():
+    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
-        model, scaler = load_model_and_scaler()
-    except FileNotFoundError as exc:
-        st.error(
-            f"Model or scaler not found ({exc}). "
-            "Please run `python data/generate_data.py` then "
-            "`python model/train.py` first."
-        )
-        st.stop()
-
-    # -----------------------------------------------------------------------
-    # Neural-network prediction
-    # -----------------------------------------------------------------------
-    raw_input = pd.DataFrame([[
-        beta, zeta, alpha, initial_population, initial_infected,
-        mobility_score, infrastructure_score, health_score,
-    ]], columns=["beta", "zeta", "alpha", "initial_population",
-                 "initial_infected", "mobility_score",
-                 "infrastructure_score", "health_score"])
-
-    scaled_input = scaler.transform(raw_input)
-    with torch.no_grad():
-        out = model(torch.FloatTensor(scaled_input)).numpy()[0]
-
-    pred_peak_fraction = float(np.clip(out[0], 0.0, 1.0))
-    pred_time_to_peak = float(np.clip(out[1], 0.0, 180.0))
-    containment_prob = float(torch.sigmoid(torch.tensor(out[2])).item())
-
-    # -----------------------------------------------------------------------
-    # Display predictions
-    # -----------------------------------------------------------------------
-    st.subheader("Neural Network Predictions")
-
-    col1, col2 = st.columns(2)
-    col1.metric("Peak Zombie Fraction", f"{pred_peak_fraction:.3f}",
-                help="Fraction of population that becomes zombies at peak.")
-    col2.metric("Time to Peak (days)", f"{pred_time_to_peak:.1f}",
-                help="Day at which zombie population reaches its maximum.")
-
-    st.write("**Containment Probability**")
-    if containment_prob > 0.60:
-        bar_color = "green"
-        outcome_label = "🟢 Likely Contained"
-    elif containment_prob >= 0.30:
-        bar_color = "orange"
-        outcome_label = "🟡 Uncertain"
-    else:
-        bar_color = "red"
-        outcome_label = "🔴 Unlikely Contained"
-
-    st.progress(containment_prob, text=f"{outcome_label} ({containment_prob:.1%})")
-
-    # -----------------------------------------------------------------------
-    # ODE simulation
-    # -----------------------------------------------------------------------
-    st.subheader("ODE Simulation (Ground Truth)")
-
-    _score_E = st.session_state.get("score_E", 0.5)
-    _score_S = st.session_state.get("score_S", 0.5)
-    _score_G = st.session_state.get("score_G", 0.5)
-
-    t, S_frac, Z_frac, R_frac = run_simulation(
-        beta, zeta, alpha, initial_population, initial_infected,
-        mobility_score, infrastructure_score, health_score,
-        score_E=_score_E, score_S=_score_S, score_G=_score_G,
-    )
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(t, S_frac, label="Susceptible (S)", color="steelblue")
-    ax.plot(t, Z_frac, label="Zombie (Z)", color="firebrick")
-    ax.plot(t, R_frac, label="Removed (R)", color="seagreen")
-    ax.set_xlabel("Time (days)")
-    ax.set_ylabel("Fraction of population")
-    ax.set_title("SZR Outbreak Dynamics")
-    ax.legend()
-    ax.set_ylim(0, 1)
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
-
-    st.caption(
-        "Simulation = ground truth. Neural network prediction shown above."
-    )
-
-    # -----------------------------------------------------------------------
-    # SHAP explanation
-    # -----------------------------------------------------------------------
-    st.subheader("Why did the model predict this?")
-
-    explainer = load_shap_explainer()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        sv = explainer.shap_values(torch.FloatTensor(scaled_input))
-    # sv shape: (1, 8, 3) — axis 2 is output index; 0 = peak_zombie_fraction
-    shap_vals = sv[0, :, 0]                        # shape (8,)
-    base_val = float(explainer.expected_value[0])
-
-    # Sort by absolute magnitude so largest contributors appear at top
-    order = np.argsort(np.abs(shap_vals))          # ascending → top of barh = largest
-    sorted_vals = shap_vals[order]
-    sorted_names = [_FEATURE_COLS[i] for i in order]
-    colors = ["#d62728" if v > 0 else "#1f77b4" for v in sorted_vals]
-
-    fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
-    ax_shap.barh(sorted_names, sorted_vals, color=colors)
-    ax_shap.axvline(0, color="black", linewidth=0.8)
-    ax_shap.set_xlabel("SHAP value (impact on peak zombie fraction)")
-    ax_shap.set_title(
-        f"Feature contributions  |  base value = {base_val:.4f}  "
-        f"→  prediction = {pred_peak_fraction:.4f}"
-    )
-    fig_shap.tight_layout()
-    st.pyplot(fig_shap)
-    plt.close(fig_shap)
-
-    st.caption(
-        "SHAP values show each feature's push on the prediction away from "
-        "the dataset average"
-    )
-
-    # -----------------------------------------------------------------------
-    # Outbreak Type Comparison
-    # -----------------------------------------------------------------------
-    county_label = st.session_state.get("county_profile", "Custom (use sliders)")
-    if county_label == "Custom (use sliders)":
-        county_label = "Custom Parameters"
-
-    with st.expander("Outbreak Type Comparison", expanded=False):
-        st.markdown(
-            f"**All 5 Outbreak Scenarios — {county_label}**  \n"
-            "Each scenario uses the zombie type's β, ζ, α, mobility combined "
-            "with the current county population and HSI values."
-        )
-
-        fig_cmp, ax_cmp = plt.subplots(figsize=(9, 5))
-        summary_rows = []
-
-        for zname, zp in ZOMBIE_PROFILES.items():
-            if zp is None:
-                continue
-            diff = zp["difficulty"]
-            color = _DIFFICULTY_COLORS.get(diff, "gray")
-
-            t_c, _, Z_c, _ = run_simulation(
-                zp["beta"], zp["zeta"], zp["alpha"],
-                initial_population, initial_infected,
-                zp["mobility_score"], infrastructure_score, health_score,
-                score_E=_score_E, score_S=_score_S, score_G=_score_G,
-                t_max=365,
+        state = torch.load(MODEL_PATH, map_location="cpu")
+        model.load_state_dict(state)
+    except RuntimeError as e:
+        err = str(e)
+        if "network" in err and "net" in err:
+            raise RuntimeError(
+                f"State dict key mismatch — the app uses 'self.network' but the "
+                f"saved model may use a different attribute name. "
+                f"Check model/szr_predictor.py and ensure the Sequential is "
+                f"assigned to 'self.network'. Original error: {err}"
             )
-            peak_z   = float(np.max(Z_c))
-            ttp_idx  = int(np.argmax(Z_c))
-            at_end   = ttp_idx >= len(Z_c) - 1
-            ttp_days = ">365" if at_end else str(int(t_c[ttp_idx]))
+        raise
+    model.eval()
+    return model
 
-            ax_cmp.plot(t_c, Z_c, label=f"{zname} [{diff}]",
-                        color=color, linewidth=1.8)
-            summary_rows.append({
-                "Scenario": zname,
-                "Peak Z%": f"{peak_z * 100:.3f}%",
-                "Days to Peak": ttp_days,
-                "Difficulty": diff,
-                "_peak_sort": peak_z,
+@st.cache_resource
+def load_scaler():
+    return joblib.load(SCALER_PATH)
+
+
+# ── SZR ODE ───────────────────────────────────────────────────────────────────
+def szr_ode(y, t, beta, zeta, alpha):
+    S, Z, R = y
+    N = S + Z + R
+    if N <= 0:
+        return [0, 0, 0]
+    dS = -beta * S * Z / N
+    dZ =  beta * S * Z / N - zeta * Z - alpha * Z
+    dR =  zeta * Z + alpha * Z
+    return [dS, dZ, dR]
+
+def run_simulation(beta, zeta, alpha, population, initial_infected, days=180):
+    S0 = population - initial_infected
+    Z0 = initial_infected
+    R0 = 0.0
+    t  = np.linspace(0, days, days * 4)
+    sol = odeint(szr_ode, [S0, Z0, R0], t, args=(beta, zeta, alpha))
+    return t, sol
+
+
+# ── Matplotlib terminal style ─────────────────────────────────────────────────
+def terminal_fig(figsize=(10, 4)):
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.patch.set_facecolor("#0a0a08")
+    ax.set_facecolor("#0d0d0a")
+    ax.tick_params(colors="#5a5040", labelsize=8)
+    ax.xaxis.label.set_color("#5a5040")
+    ax.yaxis.label.set_color("#5a5040")
+    for spine in ax.spines.values():
+        spine.set_edgecolor((0.80, 0.13, 0.0, 0.3))   # matplotlib tuple: rgba(204,34,0,0.3)
+        spine.set_linewidth(0.6)
+    ax.grid(True, color=(1.0, 1.0, 1.0, 0.04), linewidth=0.5, linestyle="--")
+    return fig, ax
+
+
+# ── Feature names / ranges ────────────────────────────────────────────────────
+# IMPORTANT: FEATURE_ORDER must match FEATURE_COLUMNS in model/szr_predictor.py
+# exactly — same names, same order — otherwise the scaler applies the wrong
+# mean/std to each input and every prediction will be wrong.
+# Current order mirrors: beta, zeta, alpha, initial_population, initial_infected,
+#                        mobility_score, infrastructure_score, health_score
+FEATURE_META = {
+    "beta":               {"label": "Transmission Rate (β)",        "min": 0.01, "max": 1.0,  "default": 0.25, "step": 0.01, "help": "Rate at which zombies infect susceptibles"},
+    "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.01, "max": 0.5,  "default": 0.10, "step": 0.01, "help": "Rate at which zombies are neutralised"},
+    "alpha":              {"label": "Natural Death Rate (α)",        "min": 0.001,"max": 0.05, "default": 0.01, "step": 0.001,"help": "Background natural mortality rate"},
+    "initial_population": {"label": "County Population",            "min": 5000, "max": 1200000,"default": 300000,"step": 1000, "help": "Starting susceptible population"},
+    "initial_infected":   {"label": "Initial Infected (Z₀)",        "min": 1,    "max": 5000, "default": 10,    "step": 1,    "help": "Seed zombie count at outbreak start"},
+    "mobility_score":     {"label": "Mobility / Escape Score (M)",  "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-M: evacuation routes, vehicle access, transit"},
+    "infrastructure_score":{"label":"Infrastructure Score (I)",     "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-I: power, water, food self-sufficiency"},
+    "health_score":       {"label": "Health & Fitness Score (H)",   "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-H: physical capability, medical access"},
+}
+FEATURE_ORDER = list(FEATURE_META.keys())
+
+
+# ── Containment colour helper ─────────────────────────────────────────────────
+def containment_color(p):
+    if p >= 0.60:
+        return "#8db829", "CONTAINED"
+    elif p >= 0.30:
+        return "#d4820a", "UNSTABLE"
+    else:
+        return "#cc2200", "COLLAPSE"
+
+
+# ── County presets (NC census + HSI estimates) ────────────────────────────────
+COUNTY_PRESETS = {
+    "— Select a county —": None,
+    "Wake County (Raleigh)":        {"initial_population": 1117742, "initial_infected": 50,  "mobility_score": 0.58, "infrastructure_score": 0.62, "health_score": 0.61},
+    "Mecklenburg County (Charlotte)":{"initial_population": 1115482, "initial_infected": 50,  "mobility_score": 0.56, "infrastructure_score": 0.60, "health_score": 0.59},
+    "Guilford County (Greensboro)": {"initial_population": 541299,  "initial_infected": 20,  "mobility_score": 0.50, "infrastructure_score": 0.55, "health_score": 0.52},
+    "Durham County":                {"initial_population": 332890,  "initial_infected": 10,  "mobility_score": 0.53, "infrastructure_score": 0.57, "health_score": 0.60},
+    "Forsyth County (W-Salem)":     {"initial_population": 390329,  "initial_infected": 15,  "mobility_score": 0.49, "infrastructure_score": 0.54, "health_score": 0.51},
+    "Cumberland County (Fayetteville)":{"initial_population": 337093,"initial_infected": 10, "mobility_score": 0.55, "infrastructure_score": 0.58, "health_score": 0.60},
+    "Buncombe County (Asheville)":  {"initial_population": 274089,  "initial_infected": 5,   "mobility_score": 0.48, "infrastructure_score": 0.52, "health_score": 0.55},
+    "Pitt County (Greenville/ECU)": {"initial_population": 184226,  "initial_infected": 5,   "mobility_score": 0.42, "infrastructure_score": 0.44, "health_score": 0.46},
+    "New Hanover County (Wilmington)":{"initial_population": 234473, "initial_infected": 8,  "mobility_score": 0.46, "infrastructure_score": 0.50, "health_score": 0.53},
+    "Alamance County (Burlington)": {"initial_population": 169509,  "initial_infected": 5,   "mobility_score": 0.44, "infrastructure_score": 0.47, "health_score": 0.48},
+}
+
+# ── Outbreak scenario presets ─────────────────────────────────────────────────
+# Two groups: zombie show canon (from config SCENARIOS) + operational severity levels
+SCENARIO_PRESETS = {
+    # ── Zombie show canon ─────────────────────────────────────────────────────
+    "— Select a scenario —":           None,
+    "🧟 The Walking Dead":             {
+        "beta": 2.80e-3, "zeta": 2.52e-3, "alpha": 0.90, "initial_infected": 10,
+        "label": "β=0.0028 · α=0.90 · Slow walkers, high removal — humans likely survive",
+        "group": "show",
+    },
+    "🍄 The Last of Us":               {
+        "beta": 6.00e-3, "zeta": 3.90e-3, "alpha": 0.65, "initial_infected": 20,
+        "label": "β=0.0060 · α=0.65 · Fungal spread, organised clickers — marginal survival",
+        "group": "show",
+    },
+    "🌍 World War Z":                  {
+        "beta": 3.60e-3, "zeta": 2.88e-3, "alpha": 0.80, "initial_infected": 50,
+        "label": "β=0.0036 · α=0.80 · Fast movers, global scale — NC likely holds",
+        "group": "show",
+    },
+    "⚡ 28 Days Later":                {
+        "beta": 9.00e-3, "zeta": 4.50e-3, "alpha": 0.50, "initial_infected": 5,
+        "label": "β=0.0090 · α=0.50 · Rage virus, extreme spread — zombies win in NC",
+        "group": "show",
+    },
+    "🦠 Rabies (real baseline)":       {
+        "beta": 0.50e-3, "zeta": 4.75e-4, "alpha": 0.95, "initial_infected": 2,
+        "label": "β=0.0005 · α=0.95 · Real-world ceiling — humans dominate easily",
+        "group": "show",
+    },
+    # ── Operational severity levels ───────────────────────────────────────────
+    "── Severity Presets ──":          None,
+    "🟢 Early Detection":              {
+        "beta": 0.15, "zeta": 0.18, "alpha": 0.01, "initial_infected": 3,
+        "label": "Low β · High ζ · Caught before community spread",
+        "group": "severity",
+    },
+    "🟡 Active Spread":                {
+        "beta": 0.30, "zeta": 0.10, "alpha": 0.01, "initial_infected": 25,
+        "label": "Moderate β · Standard removal rate",
+        "group": "severity",
+    },
+    "🔴 Rapid Outbreak":               {
+        "beta": 0.55, "zeta": 0.08, "alpha": 0.01, "initial_infected": 100,
+        "label": "High β · Overwhelmed response infrastructure",
+        "group": "severity",
+    },
+    "☠  Total Collapse":               {
+        "beta": 0.80, "zeta": 0.04, "alpha": 0.01, "initial_infected": 500,
+        "label": "Runaway infection · No effective containment",
+        "group": "severity",
+    },
+    "🪖 Military Response":            {
+        "beta": 0.25, "zeta": 0.35, "alpha": 0.01, "initial_infected": 20,
+        "label": "High removal · Fort Liberty / Camp Lejeune scenario",
+        "group": "severity",
+    },
+    "🏥 Medical Containment":          {
+        "beta": 0.20, "zeta": 0.22, "alpha": 0.01, "initial_infected": 10,
+        "label": "Active quarantine + treatment protocols",
+        "group": "severity",
+    },
+}
+
+
+# ── Session state defaults ────────────────────────────────────────────────────
+DEFAULTS = {f: FEATURE_META[f]["default"] for f in FEATURE_ORDER}
+
+def init_state():
+    for k, v in DEFAULTS.items():
+        if k not in st.session_state:
+            st.session_state[k] = float(v)
+
+init_state()
+
+# ── Split show vs severity preset dicts ──────────────────────────────────────
+SHOW_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
+                if v is not None and v.get("group") == "show"}
+SHOW_PRESETS = {"— Select a show scenario —": None, **SHOW_PRESETS}
+
+SEVERITY_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
+                    if v is not None and v.get("group") == "severity"}
+SEVERITY_PRESETS = {"— Select a severity level —": None, **SEVERITY_PRESETS}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PAGE HEADER
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown("""
+<div style='border-bottom:1px solid rgba(204,34,0,.3); padding:14px 0 12px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between;'>
+  <div>
+    <div style='font-family:"Special Elite",cursive; font-size:1.5rem; color:#e8e0d0; letter-spacing:4px;'>☣ OUTBREAK RESPONSE TERMINAL</div>
+    <div style='font-size:.65rem; color:#6b5a48; letter-spacing:3px; margin-top:3px;'>NC DIVISION · CLASSIFIED LEVEL 4 · SURROGATE NEURAL MODEL ACTIVE</div>
+  </div>
+  <div style='text-align:right;'>
+    <div style='font-size:.6rem; color:#5a5040; letter-spacing:2px;'>MODEL</div>
+    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [64→128]</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  TWO-COLUMN CONTROL PANEL
+# ═══════════════════════════════════════════════════════════════════════════════
+ctrl_left, ctrl_right = st.columns([1, 1], gap="medium")
+
+with ctrl_left:
+    st.markdown("""<div style='border-right:1px solid rgba(204,34,0,.2); padding-right:8px;'>""",
+                unsafe_allow_html=True)
+
+    # ── Location ──────────────────────────────────────────────────────────────
+    st.markdown("<div style='font-size:.7rem;color:#cc2200;letter-spacing:3px;margin-bottom:6px;'>◈ LOCATION</div>",
+                unsafe_allow_html=True)
+    county_choice = st.selectbox(
+        "NC County",
+        options=list(COUNTY_PRESETS.keys()),
+        index=0,
+        label_visibility="collapsed",
+        help="Loads real population and estimated HSI scores for that county",
+    )
+    if county_choice != "— Select a county —":
+        cp = COUNTY_PRESETS[county_choice]
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
+            st.markdown(
+                f"<div style='font-size:.62rem;color:#5a5040;margin-top:2px;'>"
+                f"{cp['initial_infected']} seed · pop {cp['initial_population']:,}</div>",
+                unsafe_allow_html=True,
+            )
+        with col_b:
+            if st.button("⬇ LOAD", type="secondary", use_container_width=True):
+                for k, v in cp.items():
+                    st.session_state[k] = float(v)
+                st.rerun()
+
+    st.markdown("<div style='margin:10px 0 4px; border-top:1px solid rgba(204,34,0,.15);'></div>",
+                unsafe_allow_html=True)
+
+    # ── Zombie Show Scenarios ─────────────────────────────────────────────────
+    st.markdown("<div style='font-size:.7rem;color:#cc2200;letter-spacing:3px;margin-bottom:6px;'>◈ ZOMBIE SHOW SCENARIO</div>",
+                unsafe_allow_html=True)
+    show_choice = st.selectbox(
+        "Show scenario",
+        options=list(SHOW_PRESETS.keys()),
+        index=0,
+        label_visibility="collapsed",
+        help="Sets β, ζ, α from published epidemiological parameters for each show",
+    )
+    show_data = SHOW_PRESETS.get(show_choice)
+    if show_data:
+        st.markdown(
+            f"<div style='font-size:.62rem;color:#d4820a;letter-spacing:1px;'>SHOW CANON</div>"
+            f"<div style='font-size:.62rem;color:#8b8070;margin-top:2px;margin-bottom:4px;'>{show_data['label']}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("⬇ LOAD SHOW PARAMS", type="secondary", use_container_width=True):
+            for k in ["beta", "zeta", "alpha", "initial_infected"]:
+                if k in show_data:
+                    st.session_state[k] = float(show_data[k])
+            st.rerun()
+
+    st.markdown("<div style='margin:10px 0 4px; border-top:1px solid rgba(204,34,0,.15);'></div>",
+                unsafe_allow_html=True)
+
+    # ── Severity Levels ───────────────────────────────────────────────────────
+    st.markdown("<div style='font-size:.7rem;color:#cc2200;letter-spacing:3px;margin-bottom:6px;'>◈ SEVERITY LEVEL</div>",
+                unsafe_allow_html=True)
+    severity_choice = st.selectbox(
+        "Severity level",
+        options=list(SEVERITY_PRESETS.keys()),
+        index=0,
+        label_visibility="collapsed",
+        help="Operational outbreak severity — sets normalised SZR transmission and removal rates",
+    )
+    sev_data = SEVERITY_PRESETS.get(severity_choice)
+    if sev_data:
+        st.markdown(
+            f"<div style='font-size:.62rem;color:#8db829;letter-spacing:1px;'>SEVERITY PRESET</div>"
+            f"<div style='font-size:.62rem;color:#8b8070;margin-top:2px;margin-bottom:4px;'>{sev_data['label']}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("⬇ LOAD SEVERITY", type="secondary", use_container_width=True):
+            for k in ["beta", "zeta", "alpha", "initial_infected"]:
+                if k in sev_data:
+                    st.session_state[k] = float(sev_data[k])
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with ctrl_right:
+    # ── Fine-tune sliders ─────────────────────────────────────────────────────
+    st.markdown("<div style='font-size:.7rem;color:#cc2200;letter-spacing:3px;margin-bottom:6px;'>◈ FINE-TUNE PARAMETERS</div>",
+                unsafe_allow_html=True)
+
+    inputs = {}
+    sl1, sl2 = st.columns(2)
+    feat_items = list(FEATURE_META.items())
+    for idx, (feat, meta) in enumerate(feat_items):
+        col = sl1 if idx % 2 == 0 else sl2
+        with col:
+            inputs[feat] = st.slider(
+                meta["label"],
+                min_value=float(meta["min"]),
+                max_value=float(meta["max"]),
+                value=float(st.session_state.get(feat, meta["default"])),
+                step=float(meta["step"]),
+                help=meta["help"],
+                key=feat,
+            )
+
+    st.markdown("<div style='margin:8px 0 4px; border-top:1px solid rgba(204,34,0,.15);'></div>",
+                unsafe_allow_html=True)
+
+    # ── Model version toggles ─────────────────────────────────────────────────
+    st.markdown("<div style='font-size:.7rem;color:#cc2200;letter-spacing:3px;margin-bottom:6px;'>◈ MODEL VERSION</div>",
+                unsafe_allow_html=True)
+    tog1, tog2 = st.columns(2)
+    with tog1:
+        use_sigmoid = st.toggle(
+            "Sigmoid κ (v2)",
+            value=True,
+            help="v2: sigmoid modifier captures threshold effects at HSI=0.5",
+        )
+    with tog2:
+        use_tract_beta = st.toggle(
+            "Tract-level β (v2)",
+            value=True,
+            help="v2: β varies by density (+40%) and mobility (-25%)",
+        )
+    st.markdown(
+        "<div style='font-size:.6rem;color:#3a3028;margin-top:2px;line-height:1.5;'>"
+        "v1: uniform β · linear κ &nbsp;|&nbsp; v2: tract β = f(density, mobility) · sigmoid κ"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<div style='margin:10px 0 6px;'></div>", unsafe_allow_html=True)
+    run_btn = st.button("▶  RUN PREDICTION", type="primary", use_container_width=True)
+    st.markdown("""
+    <div style='font-size:.6rem; color:#3a3028; line-height:1.6; margin-top:6px;'>
+    Model: SZRPredictor MLP [64→128] · Dataset: szr_synthetic.csv<br>
+    Features: β, ζ, α, N₀, Z₀, HSI-H/M/I · Split: 80/10/10 · seed=42
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("<div style='border-top:1px solid rgba(204,34,0,.3); margin:16px 0 12px;'></div>",
+            unsafe_allow_html=True)
+
+
+# ── Sigmoid modifier helpers (inline) ────────────────────────────────────────
+from scipy.special import expit as _expit
+
+def _sigmoid_kappa_modifier(hsi, scale=1.5, steepness=6.0):
+    hsi = float(np.clip(hsi, 0.0, 1.0))
+    return 1.0 + scale * (_expit(steepness * (hsi - 0.5)) - 0.5)
+
+def _linear_kappa_modifier(hsi):
+    return 1.0 + 0.5 * float(np.clip(hsi, 0.0, 1.0))
+
+
+# ── Tab layout ────────────────────────────────────────────────────────────────
+tab1, tab2, tab3, tab4 = st.tabs([
+    "☣  PREDICTION OUTPUT",
+    "📡  ODE SIMULATION",
+    "🧬  SHAP ANALYSIS",
+    "📊  MODEL v1 vs v2",
+])
+
+if run_btn:
+    # ── Build input tensor ────────────────────────────────────────────────────
+    # Pass as DataFrame with named columns so StandardScaler doesn't warn
+    x_raw_df = pd.DataFrame(
+        [[inputs[f] for f in FEATURE_ORDER]],
+        columns=FEATURE_ORDER,
+    )
+
+    try:
+        scaler = load_scaler()
+        x_scaled = scaler.transform(x_raw_df)
+    except Exception:
+        st.warning("⚠  Scaler not found — running unscaled. Retrain or check outputs/scaler.pkl.")
+        x_scaled = x_raw_df.values
+
+    x_tensor = torch.tensor(x_scaled, dtype=torch.float32)
+
+    try:
+        model = load_model()
+        with torch.no_grad():
+            raw_out = model(x_tensor).squeeze().numpy()
+        peak_frac      = float(np.clip(raw_out[0], 0, 1))
+        time_to_peak   = float(np.clip(raw_out[1], 0, 365))
+        contain_logit  = float(raw_out[2])
+        contain_prob   = float(torch.sigmoid(torch.tensor(contain_logit)).item())
+        model_loaded   = True
+    except Exception as e:
+        st.error(f"Model load failed: {e}. Showing simulation-only mode.")
+        model_loaded = False
+        peak_frac, time_to_peak, contain_prob = None, None, None
+
+    # ── Run ODE ───────────────────────────────────────────────────────────────
+    # Apply mobility modifier to match how training data was generated:
+    # effective_beta = beta * (1 - mobility_score)
+    effective_beta = inputs["beta"] * (1.0 - inputs["mobility_score"])
+    t_sim, sol = run_simulation(
+        effective_beta, inputs["zeta"], inputs["alpha"],
+        inputs["initial_population"], inputs["initial_infected"],
+    )
+    S, Z, R = sol[:, 0], sol[:, 1], sol[:, 2]
+    sim_peak_frac    = float(np.max(Z) / inputs["initial_population"])
+    sim_peak_day     = float(t_sim[np.argmax(Z)])
+    sim_survive_frac = float(S[-1] / inputs["initial_population"])
+
+    # ═════════════════════════════════════════════════════════════════════════
+    #  TAB 1 — PREDICTION
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab1:
+        st.markdown("## ◈ NEURAL NETWORK PREDICTIONS")
+
+        if model_loaded:
+            c_color, c_label = containment_color(contain_prob)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("PEAK ZOMBIE FRACTION", f"{peak_frac:.1%}",
+                          delta=f"SIM: {sim_peak_frac:.1%}")
+            with col2:
+                st.metric("TIME TO PEAK (DAYS)", f"{time_to_peak:.0f}d",
+                          delta=f"SIM: {sim_peak_day:.0f}d")
+            with col3:
+                st.metric("CONTAINMENT PROBABILITY", f"{contain_prob:.1%}", delta=c_label)
+
+            st.markdown("---")
+            st.markdown(f"### ◈ CONTAINMENT STATUS: <span style='color:{c_color};font-family:Special Elite,cursive;letter-spacing:3px;'>{c_label}</span>", unsafe_allow_html=True)
+            st.progress(contain_prob)
+
+            st.markdown("""
+            <div style='font-size:.7rem; color:#3a3028; margin-top:8px;'>
+            ↑ Neural network output · Model: SZRPredictor [64→128] · Experiment C
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.info("Model unavailable — displaying simulation ground truth only.")
+
+        st.markdown("---")
+        st.markdown("## ◈ GROUND TRUTH — SIMULATION METRICS")
+        s1, s2, s3 = st.columns(3)
+        s1.metric("SIM PEAK ZOMBIE FRAC", f"{sim_peak_frac:.1%}")
+        s2.metric("SIM PEAK DAY", f"{sim_peak_day:.0f}d")
+        s3.metric("SIM SURVIVORS", f"{sim_survive_frac:.1%}")
+
+        st.markdown("""
+        <div style='font-size:.7rem; color:#3a3028; margin-top:4px;'>
+        Simulation = ground truth. Neural network prediction shown above. HSI weights: H=0.15 · M=0.15 · I=0.20
+        </div>""", unsafe_allow_html=True)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    #  TAB 2 — ODE SIMULATION
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab2:
+        st.markdown("## ◈ SZR EPIDEMIOLOGICAL SIMULATION")
+
+        fig, ax = terminal_fig(figsize=(11, 4.5))
+        ax.plot(t_sim, S / inputs["initial_population"], color="#8db829", linewidth=1.8, label="Susceptible (S)")
+        ax.plot(t_sim, Z / inputs["initial_population"], color="#cc2200", linewidth=1.8, label="Zombie (Z)")
+        ax.plot(t_sim, R / inputs["initial_population"], color="#5a5040", linewidth=1.2, label="Removed (R)", linestyle="--")
+        ax.axvline(sim_peak_day, color="#cc2200", alpha=0.4, linewidth=0.8, linestyle=":")
+        ax.text(sim_peak_day + 2, sim_peak_frac * 0.95, f"  PEAK D{sim_peak_day:.0f}",
+                color="#cc2200", fontsize=7, fontfamily="monospace")
+        ax.set_xlabel("Days since outbreak", fontfamily="monospace", fontsize=8)
+        ax.set_ylabel("Fraction of population", fontfamily="monospace", fontsize=8)
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
+        legend = ax.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
+                           labelcolor="#8b8070", fontsize=8)
+        st.pyplot(fig, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("## ◈ COUNTY-LEVEL SCENARIO COMPARISON")
+
+        COUNTIES = {
+            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.61},
+            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.46},
+            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.55},
+            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.60},
+        }
+
+        compare_rows = []
+        for cname, cp in COUNTIES.items():
+            county_beta = inputs["beta"] * (1.0 - cp["mob"])
+            ct, csol = run_simulation(county_beta, inputs["zeta"], inputs["alpha"],
+                                      cp["pop"], cp["inf"])
+            cZ = csol[:, 1]
+            compare_rows.append({
+                "County": cname,
+                "Peak Z%": f"{np.max(cZ)/cp['pop']:.1%}",
+                "Peak Day": f"{ct[np.argmax(cZ)]:.0f}",
+                "Survivors": f"{csol[-1,0]/cp['pop']:.1%}",
+                "HSI-M": f"{cp['mob']:.2f}",
+                "HSI-I": f"{cp['infra']:.2f}",
+                "HSI-H": f"{cp['health']:.2f}",
             })
+        st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 
-        ax_cmp.set_xlabel(
-            "Time (days) — 1-year simulation window"
-        )
-        ax_cmp.set_ylabel("Zombie population (%)")
-        ax_cmp.yaxis.set_major_formatter(
-            matplotlib.ticker.FuncFormatter(lambda x, _: f"{x*100:.4f}%")
-        )
-        ax_cmp.set_title(
-            f"All 5 Outbreak Scenarios — {county_label}\n"
-            f"Population: {initial_population:,}  |  "
-            f"HSI: mob={mobility_score:.2f} infra={infrastructure_score:.2f} "
-            f"health={health_score:.2f}  |  Window: 365 days"
-        )
-        ax_cmp.legend(fontsize=8, loc="upper right")
-        ax_cmp.set_ylim(0)
-        fig_cmp.tight_layout()
-        st.pyplot(fig_cmp)
-        plt.close(fig_cmp)
+    # ═════════════════════════════════════════════════════════════════════════
+    #  TAB 3 — SHAP
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab3:
+        st.markdown("## ◈ SHAP FEATURE IMPORTANCE")
 
-        # Ranked summary table — sorted by peak Z% descending
-        df_summary = (
-            pd.DataFrame(summary_rows)
-            .sort_values("_peak_sort", ascending=False)
-            .drop(columns="_peak_sort")
-            .reset_index(drop=True)
-        )
-        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        if model_loaded:
+            try:
+                def model_fn_peak(X_np):
+                    t = torch.tensor(X_np.astype(np.float32))
+                    with torch.no_grad():
+                        return model(t).numpy()[:, 0]
 
-        st.caption(
-            "Parameters from DASC 6010 (CSCI 6010) Zombie Scenarios sheet. "
-            "Witkowski & Blais (2013) Bayesian fit as baseline."
-        )
-        st.info(
-            "**Note:** Witkowski-Blais β values (0.0005–0.009) reflect zombie contact "
-            "dynamics fit from film data. At 1-year scale, 28 Days Later shows ~3.5× "
-            "more spread than The Last of Us, illustrating relative danger across "
-            "outbreak types."
-        )
+                def model_fn_contain(X_np):
+                    t = torch.tensor(X_np.astype(np.float32))
+                    with torch.no_grad():
+                        logits = model(t).numpy()[:, 2]
+                    return 1 / (1 + np.exp(-logits))
+
+                background = np.tile(x_scaled, (50, 1)) + np.random.normal(0, 0.05, (50, 8))
+                background = background.astype(np.float32)
+
+                exp_peak    = shap.Explainer(model_fn_peak,    background)
+                exp_contain = shap.Explainer(model_fn_contain, background)
+                sv_peak    = exp_peak(x_scaled)
+                sv_contain = exp_contain(x_scaled)
+
+                feat_labels = [FEATURE_META[f]["label"] for f in FEATURE_ORDER]
+
+                fig2, axes = plt.subplots(1, 2, figsize=(11, 4))
+                for ax2, sv, title, color in zip(
+                        axes,
+                        [sv_peak, sv_contain],
+                        ["Peak Zombie Fraction", "Containment Probability"],
+                        ["#cc2200", "#8db829"],
+                ):
+                    vals  = sv.values[0]
+                    order = np.argsort(np.abs(vals))[::-1]
+                    bars  = ax2.barh(
+                        [feat_labels[i] for i in order],
+                        [vals[i] for i in order],
+                        color=[color if vals[i] > 0 else "#4a3020" for i in order],
+                        edgecolor="none", height=0.6,
+                    )
+                    ax2.axvline(0, color="#3a3028", linewidth=0.8)
+                    ax2.set_facecolor("#0d0d0a")
+                    fig2.patch.set_facecolor("#0a0a08")
+                    ax2.tick_params(colors="#5a5040", labelsize=7)
+                    ax2.set_title(title, color="#8b8070", fontsize=8, fontfamily="monospace", pad=8)
+                    for spine in ax2.spines.values():
+                        spine.set_edgecolor((0.80, 0.13, 0.0, 0.2))
+                        spine.set_linewidth(0.5)
+
+                plt.tight_layout(pad=1.5)
+                st.pyplot(fig2, use_container_width=True)
+                st.markdown("""
+                <div style='font-size:.7rem; color:#3a3028; margin-top:6px;'>
+                SHAP values computed via KernelExplainer on 50 background samples.
+                Positive = increases output · Negative = decreases output.
+                </div>""", unsafe_allow_html=True)
+
+            except Exception as e:
+                st.warning(f"SHAP computation failed: {e}")
+        else:
+            st.info("Load the model to enable SHAP analysis.")
+
+        st.markdown("---")
+        st.markdown("## ◈ ABLATION RESULTS")
+
+        try:
+            abl_path = os.path.join(os.path.dirname(__file__), "..", "outputs", "ablation_results.csv")
+            abl = pd.read_csv(abl_path)
+            st.dataframe(abl, use_container_width=True, hide_index=True)
+        except FileNotFoundError:
+            st.markdown("""
+            <div style='font-size:.8rem; color:#6b5a48; padding:10px; border:1px solid rgba(204,34,0,.2);'>
+            ablation_results.csv not found at outputs/ablation_results.csv.<br>
+            Run model/train.py to generate it.
+            </div>""", unsafe_allow_html=True)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    #  TAB 4 — MODEL v1 vs v2 COMPARISON
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab4:
+        st.markdown("## ◈ LINEAR vs SIGMOID κ MODIFIER")
+        st.markdown("""
+        <div style='font-size:.75rem; color:#6b5a48; margin-bottom:14px; line-height:1.7;'>
+        v1 assumes killing effectiveness scales linearly with HSI.
+        v2 uses a sigmoid — communities below a coordination threshold kill poorly;
+        above it they become dramatically more effective. The inflection is at HSI=0.5.
+        </div>""", unsafe_allow_html=True)
+
+        hsi_range = np.linspace(0, 1, 200)
+        linear_vals  = [_linear_kappa_modifier(h) for h in hsi_range]
+        sigmoid_vals = [_sigmoid_kappa_modifier(h) for h in hsi_range]
+
+        fig_mod, ax_mod = terminal_fig(figsize=(10, 3.5))
+        ax_mod.plot(hsi_range, linear_vals,  color="#5a5040", linewidth=1.5,
+                    linestyle="--", label="v1 linear:  κ_eff = κ_base × (1 + 0.5·HSI)")
+        ax_mod.plot(hsi_range, sigmoid_vals, color="#cc2200", linewidth=2.0,
+                    label="v2 sigmoid: κ_eff = κ_base × sigmoid_modifier(HSI)")
+        ax_mod.axvline(0.5, color="#8db829", linewidth=0.7, alpha=0.5, linestyle=":")
+        ax_mod.axhline(1.0, color="#3a3028", linewidth=0.5)
+        ax_mod.text(0.52, 0.78, "inflection\nHSI=0.5", color="#8db829",
+                    fontsize=7, fontfamily="monospace", transform=ax_mod.transAxes)
+        ax_mod.set_xlabel("HSI score", fontfamily="monospace", fontsize=8)
+        ax_mod.set_ylabel("κ multiplier", fontfamily="monospace", fontsize=8)
+        legend = ax_mod.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
+                               labelcolor="#8b8070", fontsize=8)
+        st.pyplot(fig_mod, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("## ◈ TRACT-LEVEL β VARIATION")
+        st.markdown("""
+        <div style='font-size:.75rem; color:#6b5a48; margin-bottom:14px; line-height:1.7;'>
+        v1: β is uniform across all tracts regardless of density or mobility.<br>
+        v2: β_eff(tract) = β_base × density_modifier × encounter_modifier.<br>
+        This gives the M (Mobility) section direct influence on spread rate, not just kill rate.
+        </div>""", unsafe_allow_html=True)
+
+        beta_base_display = inputs["beta"]
+        density_range = np.linspace(0, 1, 100)
+        mob_levels = [0.2, 0.5, 0.8]
+        mob_labels = ["Low mobility (0.2)", "Mid mobility (0.5)", "High mobility (0.8)"]
+        mob_colors = ["#cc2200", "#d4820a", "#8db829"]
+
+        fig_beta, ax_beta = terminal_fig(figsize=(10, 3.5))
+        ax_beta.axhline(beta_base_display, color="#5a5040", linewidth=1.2,
+                        linestyle="--", label=f"v1 uniform β = {beta_base_display:.3f}")
+        for mob, label, color in zip(mob_levels, mob_labels, mob_colors):
+            betas = [
+                beta_base_display * (1.0 + 0.40 * d) * (1.0 - 0.25 * mob)
+                for d in density_range
+            ]
+            ax_beta.plot(density_range, betas, color=color, linewidth=1.6, label=f"v2 {label}")
+        ax_beta.set_xlabel("Normalised population density", fontfamily="monospace", fontsize=8)
+        ax_beta.set_ylabel("β_eff", fontfamily="monospace", fontsize=8)
+        legend2 = ax_beta.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
+                                 labelcolor="#8b8070", fontsize=8)
+        st.pyplot(fig_beta, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("## ◈ NEW HSI SUB-FACTORS — FETCH STATUS")
+        fetch_status = [
+            {"Factor": "Hunting License Density",      "Category": "C", "Owner": "Kiana",   "Data Source": "NCWRC Annual Report",      "Status": "⚠ Manual download needed",  "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Congregation Density",          "Category": "C", "Owner": "Kiana",   "Data Source": "USDA ERS Rural Atlas",     "Status": "⚠ Partial (proxy available)", "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Volunteer Fire Dept Coverage",  "Category": "C", "Owner": "Kiana",   "Data Source": "USFA NFIRS",              "Status": "⚠ Fetch attempt in script",   "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Waterway Barrier Score",        "Category": "G", "Owner": "Rebecca", "Data Source": "USGS NHD",                "Status": "⚠ Manual GIS download",       "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "National Forest Proximity",     "Category": "G", "Owner": "Rebecca", "Data Source": "USDA FS Boundaries",      "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "Bridge Chokepoint Density",     "Category": "G", "Owner": "Rebecca", "Data Source": "FHWA NBI",                "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "Agricultural Occupation Rate",  "Category": "E", "Owner": "Lennen",  "Data Source": "ACS C24010",              "Status": "🟢 Census API (key required)", "Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Ham Radio License Density",     "Category": "E", "Owner": "Lennen",  "Data Source": "FCC ULS",                 "Status": "🟢 Auto-download available",  "Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Physical Inactivity Rate (LPA)","Category": "H", "Owner": "Curtis",  "Data Source": "CDC PLACES 2023 (in repo)","Status": "✅ Ready — just not extracted","Script": "fetch_category_e_extensions.py"},
+        ]
+        st.dataframe(pd.DataFrame(fetch_status), use_container_width=True, hide_index=True)
+        st.markdown("""
+        <div style='font-size:.7rem; color:#3a3028; margin-top:6px;'>
+        Run: python data/fetch/fetch_category_c_extensions.py --factor all<br>
+        Run: python data/fetch/fetch_category_g_extensions.py --factor all<br>
+        Run: python data/fetch/fetch_category_e_extensions.py --factor all
+        </div>""", unsafe_allow_html=True)
+
+else:
+    # ── Idle state ────────────────────────────────────────────────────────────
+    with tab1:
+        st.markdown("""
+        <div style='
+            border: 1px solid rgba(204,34,0,.3);
+            background: rgba(204,34,0,.05);
+            padding: 40px;
+            text-align: center;
+            margin-top: 40px;
+        '>
+            <div style='font-family:"Special Elite",cursive; font-size:2rem; color:#cc2200; letter-spacing:6px;'>☣</div>
+            <div style='font-family:"Special Elite",cursive; font-size:1.1rem; color:#e8e0d0; letter-spacing:4px; margin-top:12px;'>
+                AWAITING PARAMETERS
+            </div>
+            <div style='font-size:.75rem; color:#5a5040; letter-spacing:2px; margin-top:8px;'>
+                Configure outbreak parameters in the sidebar and press RUN PREDICTION
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with tab2:
+        st.info("Run a prediction first to view the simulation.")
+    with tab3:
+        st.info("Run a prediction first to view SHAP analysis.")
+    with tab4:
+        st.info("Run a prediction first to view model comparison charts.")

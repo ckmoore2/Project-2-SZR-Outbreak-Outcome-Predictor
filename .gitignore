@@ -26,7 +26,6 @@ data/dasc6010/*.csv
 # OS
 .DS_Store
 
-.claude
-!/CLAUDE.md
+.claude/
 .idea
 key.json
