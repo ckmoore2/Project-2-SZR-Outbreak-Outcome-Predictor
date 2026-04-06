@@ -128,10 +128,10 @@ class SZRPredictor(nn.Module):
             layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
             prev = h
         layers.append(nn.Linear(prev, output_dim))
-        self.net = nn.Sequential(*layers)
+        self.network = nn.Sequential(*layers)   # must match train.py attribute name
 
     def forward(self, x):
-        return self.net(x)
+        return self.network(x)
 
 
 # ── Load model + scaler ───────────────────────────────────────────────────────
@@ -141,7 +141,19 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 @st.cache_resource
 def load_model():
     model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
+    try:
+        state = torch.load(MODEL_PATH, map_location="cpu")
+        model.load_state_dict(state)
+    except RuntimeError as e:
+        err = str(e)
+        if "network" in err and "net" in err:
+            raise RuntimeError(
+                f"State dict key mismatch — the app uses 'self.network' but the "
+                f"saved model may use a different attribute name. "
+                f"Check model/szr_predictor.py and ensure the Sequential is "
+                f"assigned to 'self.network'. Original error: {err}"
+            )
+        raise
     model.eval()
     return model
 
@@ -179,13 +191,18 @@ def terminal_fig(figsize=(10, 4)):
     ax.xaxis.label.set_color("#5a5040")
     ax.yaxis.label.set_color("#5a5040")
     for spine in ax.spines.values():
-        spine.set_edgecolor((0.80, 0.13, 0.0, 0.3))
+        spine.set_edgecolor((0.80, 0.13, 0.0, 0.3))   # matplotlib tuple: rgba(204,34,0,0.3)
         spine.set_linewidth(0.6)
     ax.grid(True, color=(1.0, 1.0, 1.0, 0.04), linewidth=0.5, linestyle="--")
     return fig, ax
 
 
 # ── Feature names / ranges ────────────────────────────────────────────────────
+# IMPORTANT: FEATURE_ORDER must match FEATURE_COLUMNS in model/szr_predictor.py
+# exactly — same names, same order — otherwise the scaler applies the wrong
+# mean/std to each input and every prediction will be wrong.
+# Current order mirrors: beta, zeta, alpha, initial_population, initial_infected,
+#                        mobility_score, infrastructure_score, health_score
 FEATURE_META = {
     "beta":               {"label": "Transmission Rate (β)",        "min": 0.0001, "max": 1.0,  "default": 0.25, "step": 0.01, "help": "Rate at which zombies infect susceptibles"},
     "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.0001, "max": 0.5,  "default": 0.10, "step": 0.01, "help": "Rate at which zombies are neutralised"},
@@ -493,14 +510,18 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 if run_btn:
     # ── Build input tensor ────────────────────────────────────────────────────
-    x_raw = np.array([[inputs[f] for f in FEATURE_ORDER]], dtype=np.float32)
+    # Pass as DataFrame with named columns so StandardScaler doesn't warn
+    x_raw_df = pd.DataFrame(
+        [[inputs[f] for f in FEATURE_ORDER]],
+        columns=FEATURE_ORDER,
+    )
 
     try:
         scaler = load_scaler()
-        x_scaled = scaler.transform(x_raw)
+        x_scaled = scaler.transform(x_raw_df)
     except Exception:
         st.warning("⚠  Scaler not found — running unscaled. Retrain or check outputs/scaler.pkl.")
-        x_scaled = x_raw
+        x_scaled = x_raw_df.values
 
     x_tensor = torch.tensor(x_scaled, dtype=torch.float32)
 
@@ -586,7 +607,7 @@ if run_btn:
         ax.set_xlabel("Days since outbreak", fontfamily="monospace", fontsize=8)
         ax.set_ylabel("Fraction of population", fontfamily="monospace", fontsize=8)
         ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
-        legend = ax.legend(facecolor="#0d0d0a", edgecolor="rgba(204,34,0,0.3)",
+        legend = ax.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
                            labelcolor="#8b8070", fontsize=8)
         st.pyplot(fig, use_container_width=True)
 
@@ -666,7 +687,7 @@ if run_btn:
                     ax2.tick_params(colors="#5a5040", labelsize=7)
                     ax2.set_title(title, color="#8b8070", fontsize=8, fontfamily="monospace", pad=8)
                     for spine in ax2.spines.values():
-                        spine.set_edgecolor("rgba(204,34,0,0.2)")
+                        spine.set_edgecolor((0.80, 0.13, 0.0, 0.2))
                         spine.set_linewidth(0.5)
 
                 plt.tight_layout(pad=1.5)
@@ -723,7 +744,7 @@ if run_btn:
                     fontsize=7, fontfamily="monospace", transform=ax_mod.transAxes)
         ax_mod.set_xlabel("HSI score", fontfamily="monospace", fontsize=8)
         ax_mod.set_ylabel("κ multiplier", fontfamily="monospace", fontsize=8)
-        legend = ax_mod.legend(facecolor="#0d0d0a", edgecolor="rgba(204,34,0,0.3)",
+        legend = ax_mod.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
                                labelcolor="#8b8070", fontsize=8)
         st.pyplot(fig_mod, use_container_width=True)
 
@@ -753,7 +774,7 @@ if run_btn:
             ax_beta.plot(density_range, betas, color=color, linewidth=1.6, label=f"v2 {label}")
         ax_beta.set_xlabel("Normalised population density", fontfamily="monospace", fontsize=8)
         ax_beta.set_ylabel("β_eff", fontfamily="monospace", fontsize=8)
-        legend2 = ax_beta.legend(facecolor="#0d0d0a", edgecolor="rgba(204,34,0,0.3)",
+        legend2 = ax_beta.legend(facecolor="#0d0d0a", edgecolor=(0.80, 0.13, 0.0, 0.3),
                                  labelcolor="#8b8070", fontsize=8)
         st.pyplot(fig_beta, use_container_width=True)
 
