@@ -244,31 +244,31 @@ COUNTY_PRESETS = {
 # ── Outbreak scenario presets ─────────────────────────────────────────────────
 # Two groups: zombie show canon (from config SCENARIOS) + operational severity levels
 SCENARIO_PRESETS = {
-    # ── Zombie show canon ─────────────────────────────────────────────────────
+    # ── Zombie show canon (frequency-dependent equivalents) ──────────────────
     "— Select a scenario —":           None,
     "🧟 The Walking Dead":             {
-        "beta": 2.80e-3, "zeta": 2.52e-3, "alpha": 0.90, "initial_infected": 10,
-        "label": "β=0.0028 · α=0.90 · Slow walkers, high removal — humans likely survive",
+        "beta": 0.28, "zeta": 0.25, "alpha": 0.01, "initial_infected": 10,
+        "label": "β=0.28 · ζ=0.25 · Slow walkers, high removal — humans likely survive",
         "group": "show",
     },
     "🍄 The Last of Us":               {
-        "beta": 6.00e-3, "zeta": 3.90e-3, "alpha": 0.65, "initial_infected": 20,
-        "label": "β=0.0060 · α=0.65 · Fungal spread, organised clickers — marginal survival",
+        "beta": 0.50, "zeta": 0.20, "alpha": 0.01, "initial_infected": 20,
+        "label": "β=0.50 · ζ=0.20 · Fungal spread — severe outbreak, marginal survival",
         "group": "show",
     },
     "🌍 World War Z":                  {
-        "beta": 3.60e-3, "zeta": 2.88e-3, "alpha": 0.80, "initial_infected": 50,
-        "label": "β=0.0036 · α=0.80 · Fast movers, global scale — NC likely holds",
+        "beta": 0.45, "zeta": 0.35, "alpha": 0.01, "initial_infected": 50,
+        "label": "β=0.45 · ζ=0.35 · Fast movers, global scale — NC likely holds",
         "group": "show",
     },
     "⚡ 28 Days Later":                {
-        "beta": 9.00e-3, "zeta": 4.50e-3, "alpha": 0.50, "initial_infected": 5,
-        "label": "β=0.0090 · α=0.50 · Rage virus, extreme spread — zombies win in NC",
+        "beta": 0.75, "zeta": 0.12, "alpha": 0.01, "initial_infected": 5,
+        "label": "β=0.75 · ζ=0.12 · Rage virus, extreme spread — zombies win in NC",
         "group": "show",
     },
     "🦠 Rabies (real baseline)":       {
-        "beta": 0.50e-3, "zeta": 4.75e-4, "alpha": 0.95, "initial_infected": 2,
-        "label": "β=0.0005 · α=0.95 · Real-world ceiling — humans dominate easily",
+        "beta": 0.05, "zeta": 0.25, "alpha": 0.01, "initial_infected": 185,
+        "label": "β=0.05 · ζ=0.25 · Real-world ceiling — humans dominate easily",
         "group": "show",
     },
     # ── Operational severity levels ───────────────────────────────────────────

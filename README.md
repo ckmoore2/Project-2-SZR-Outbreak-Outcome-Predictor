@@ -133,6 +133,18 @@ dR/dt =  (κ + α) × Z
 
 The simulation notebook (`Model_Simulation_1.ipynb`) uses a **mass-action** formulation without the `/N` denominator. The frequency-dependent form is more standard for human diseases and scales correctly across county populations of different sizes.
 
+**Show scenario parameters** have been converted from the paper's mass-action formulation (Alemi et al. 2015) to frequency-dependent equivalents that produce the same qualitative dynamics (who wins, how quickly) while remaining numerically valid with the `/N` contact term:
+
+| Show | β (freq-dep) | ζ (freq-dep) | Expected outcome |
+|---|---|---|---|
+| The Walking Dead | 0.28 | 0.25 | Humans survive (slow walkers, high removal) |
+| The Last of Us | 0.50 | 0.20 | Marginal survival (fungal spread) |
+| World War Z | 0.45 | 0.35 | NC holds (fast movers, strong response) |
+| 28 Days Later | 0.75 | 0.12 | Zombies win (rage virus, extreme spread) |
+| Rabies (baseline) | 0.05 | 0.25 | Humans dominate (real-world ceiling) |
+
+Zombies spread when β > ζ + α; humans contain when β < ζ + α.
+
 ---
 
 ## Project Structure
