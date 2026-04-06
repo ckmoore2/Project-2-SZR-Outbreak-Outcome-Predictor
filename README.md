@@ -137,31 +137,47 @@ The simulation notebook (`Model_Simulation_1.ipynb`) uses a **mass-action** form
 Project-2-SZR-Outbreak-Outcome-Predictor/
 │
 ├── app/
-│   └── streamlit_app.py          ← Interactive prediction UI
+│   └── streamlit_app.py              ← Interactive Streamlit prediction UI
 │
 ├── data/
-│   ├── generate_data.py          ← Synthetic dataset generator (v2 — HSI-anchored)
-│   ├── integrate_real_hsi.py     ← Extracts real HSI scores from merged notebook data
+│   ├── generate_data.py              ← Synthetic dataset generator (v2 — HSI-anchored)
+│   ├── integrate_real_hsi.py         ← Extracts real HSI scores from merged county data
+│   ├── rebuild_county_data.py        ← Recreates all county CSVs from public sources
+│   ├── nc_county_profiles.py         ← County profile definitions and metadata
+│   ├── synthesize_missing_hsi.py     ← Fills missing HSI sub-scores via regional median
+│   ├── validate_hsi_sections.py      ← Validates HSI section outputs before merging
+│   ├── fetch/
+│   │   ├── fetch_category_c_extensions.py  ← Hunting licenses, VFD, congregation data
+│   │   ├── fetch_category_e_extensions.py  ← Ham radio (FCC), agriculture (ACS C24010)
+│   │   └── fetch_category_g_extensions.py  ← Waterways (NHD), forests (USDA), bridges
 │   └── processed/
-│       ├── merged_county_df.csv  ← Team's merged 100-county DataFrame (gitignored)
-│       ├── nc_county_hsi_real.csv ← Per-county HSI scores + sim results
-│       └── hsi_distributions.json ← NC HSI distribution anchors for generator
+│       ├── merged_county_df.csv      ← Team's merged 100-county DataFrame (gitignored)
+│       ├── nc_county_hsi_real.csv    ← Per-county HSI scores + simulation results
+│       └── hsi_distributions.json   ← Real NC HSI distribution anchors for generator
 │
 ├── model/
-│   ├── szr_predictor.py          ← SZRPredictor MLP class + FEATURE_COLUMNS
-│   └── train.py                  ← Six ablation experiments + model save
+│   ├── szr_predictor.py              ← SZRPredictor MLP class + FEATURE_COLUMNS
+│   ├── train.py                      ← Six ablation experiments + model save
+│   ├── config.py                     ← Scenario parameters, HSI weights, v2 settings
+│   ├── szr_model.py                  ← SZR ODE with sigmoid κ modifier + tract-level β
+│   └── sensitivity_analysis.py      ← HSI weight sensitivity sweep across scenario pairs
 │
 ├── notebooks/
-│   └── Model_Simulation_1.ipynb  ← Team simulation notebook (county-level SZR)
+│   ├── Model Simulation 1.ipynb     ← Team simulation notebook (county-level SZR)
+│   └── exploration.ipynb            ← Exploratory data analysis notebook
 │
 ├── outputs/
-│   ├── best_model.pt             ← Trained Experiment C weights (gitignored)
-│   ├── scaler.pkl                ← Fitted StandardScaler (gitignored)
-│   ├── ablation_results.csv      ← Six-experiment comparison table
-│   └── loss_curve.png            ← Experiment C training/validation loss
+│   ├── best_model.pt                ← Trained Experiment C weights (gitignored)
+│   ├── scaler.pkl                   ← Fitted StandardScaler (gitignored)
+│   ├── ablation_results.csv         ← Six-experiment comparison table
+│   ├── loss_curve.png               ← Experiment C training/validation loss
+│   └── generate_plots.py            ← Script to regenerate output charts
 │
 ├── .github/workflows/
-│   └── deploy.yml                ← GitHub Actions CI/CD → GCP Cloud Run
+│   ├── deploy.yml                   ← GitHub Actions CI/CD → GCP Cloud Run
+│   └── ci.yml                       ← Continuous integration checks
+│
+├── deploy.sh                        ← Manual GCP Cloud Run deploy helper script
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
