@@ -179,16 +179,16 @@ def terminal_fig(figsize=(10, 4)):
     ax.xaxis.label.set_color("#5a5040")
     ax.yaxis.label.set_color("#5a5040")
     for spine in ax.spines.values():
-        spine.set_edgecolor("rgba(204,34,0,0.3)")
+        spine.set_edgecolor((0.80, 0.13, 0.0, 0.3))
         spine.set_linewidth(0.6)
-    ax.grid(True, color="rgba(255,255,255,0.04)", linewidth=0.5, linestyle="--")
+    ax.grid(True, color=(1.0, 1.0, 1.0, 0.04), linewidth=0.5, linestyle="--")
     return fig, ax
 
 
 # ── Feature names / ranges ────────────────────────────────────────────────────
 FEATURE_META = {
-    "beta":               {"label": "Transmission Rate (β)",        "min": 0.01, "max": 1.0,  "default": 0.25, "step": 0.01, "help": "Rate at which zombies infect susceptibles"},
-    "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.01, "max": 0.5,  "default": 0.10, "step": 0.01, "help": "Rate at which zombies are neutralised"},
+    "beta":               {"label": "Transmission Rate (β)",        "min": 0.0001, "max": 1.0,  "default": 0.25, "step": 0.01, "help": "Rate at which zombies infect susceptibles"},
+    "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.0001, "max": 0.5,  "default": 0.10, "step": 0.01, "help": "Rate at which zombies are neutralised"},
     "alpha":              {"label": "Natural Death Rate (α)",        "min": 0.001,"max": 0.05, "default": 0.01, "step": 0.001,"help": "Background natural mortality rate"},
     "initial_population": {"label": "County Population",            "min": 5000, "max": 1200000,"default": 300000,"step": 1000, "help": "Starting susceptible population"},
     "initial_infected":   {"label": "Initial Infected (Z₀)",        "min": 1,    "max": 5000, "default": 10,    "step": 1,    "help": "Seed zombie count at outbreak start"},
