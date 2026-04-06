@@ -140,7 +140,7 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
         state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
@@ -348,7 +348,7 @@ st.markdown("""
   </div>
   <div style='text-align:right;'>
     <div style='font-size:.6rem; color:#5a5040; letter-spacing:2px;'>MODEL</div>
-    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [128→256→128]</div>
+    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [64→128]</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -510,7 +510,7 @@ with ctrl_right:
     run_btn = st.button("▶  RUN PREDICTION", type="primary", use_container_width=True)
     st.markdown("""
     <div style='font-size:.6rem; color:#3a3028; line-height:1.6; margin-top:6px;'>
-    Model: SZRPredictor MLP [128→256→128] · Dataset: szr_synthetic.csv<br>
+    Model: SZRPredictor MLP [64→128] · Dataset: szr_synthetic.csv<br>
     Features: β, ζ, α, N₀, Z₀, HSI-H/M/I · Split: 80/10/10 · seed=42
     </div>""", unsafe_allow_html=True)
 
