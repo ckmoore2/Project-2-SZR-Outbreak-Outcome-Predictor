@@ -27,3 +27,4 @@ deploy.sh
 # OS
 .DS_Store
 *.json
+!/.venv/

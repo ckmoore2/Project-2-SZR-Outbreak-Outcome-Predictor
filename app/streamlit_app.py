@@ -313,8 +313,19 @@ def init_state():
     for k, v in DEFAULTS.items():
         if k not in st.session_state:
             st.session_state[k] = float(v)
+    # Notification state — persists across reruns
+    if "_toast_msg" not in st.session_state:
+        st.session_state["_toast_msg"] = None
+    if "_toast_icon" not in st.session_state:
+        st.session_state["_toast_icon"] = "✅"
 
 init_state()
+
+# ── Fire any pending toast notification ──────────────────────────────────────
+if st.session_state["_toast_msg"]:
+    st.toast(st.session_state["_toast_msg"], icon=st.session_state["_toast_icon"])
+    st.session_state["_toast_msg"] = None
+    st.session_state["_toast_icon"] = "✅"
 
 # ── Split show vs severity preset dicts ──────────────────────────────────────
 SHOW_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
@@ -372,8 +383,14 @@ with ctrl_left:
             )
         with col_b:
             if st.button("⬇ LOAD", type="secondary", use_container_width=True):
-                for k, v in cp.items():
-                    st.session_state[k] = float(v)
+                try:
+                    for k, v in cp.items():
+                        st.session_state[k] = float(v)
+                    st.session_state["_toast_msg"] = f"✔ {county_choice} loaded — pop {cp['initial_population']:,}"
+                    st.session_state["_toast_icon"] = "✅"
+                except Exception as e:
+                    st.session_state["_toast_msg"] = f"Failed to load county data: {e}"
+                    st.session_state["_toast_icon"] = "🚨"
                 st.rerun()
 
     st.markdown("<div style='margin:10px 0 4px; border-top:1px solid rgba(204,34,0,.15);'></div>",
@@ -397,9 +414,15 @@ with ctrl_left:
             unsafe_allow_html=True,
         )
         if st.button("⬇ LOAD SHOW PARAMS", type="secondary", use_container_width=True):
-            for k in ["beta", "zeta", "alpha", "initial_infected"]:
-                if k in show_data:
-                    st.session_state[k] = float(show_data[k])
+            try:
+                for k in ["beta", "zeta", "alpha", "initial_infected"]:
+                    if k in show_data:
+                        st.session_state[k] = float(show_data[k])
+                st.session_state["_toast_msg"] = f"✔ {show_choice} loaded — β={show_data.get('beta', 'n/a'):.4f} · ζ={show_data.get('zeta', 'n/a'):.4f}"
+                st.session_state["_toast_icon"] = "✅"
+            except Exception as e:
+                st.session_state["_toast_msg"] = f"Failed to load show params: {e}"
+                st.session_state["_toast_icon"] = "🚨"
             st.rerun()
 
     st.markdown("<div style='margin:10px 0 4px; border-top:1px solid rgba(204,34,0,.15);'></div>",
@@ -423,9 +446,15 @@ with ctrl_left:
             unsafe_allow_html=True,
         )
         if st.button("⬇ LOAD SEVERITY", type="secondary", use_container_width=True):
-            for k in ["beta", "zeta", "alpha", "initial_infected"]:
-                if k in sev_data:
-                    st.session_state[k] = float(sev_data[k])
+            try:
+                for k in ["beta", "zeta", "alpha", "initial_infected"]:
+                    if k in sev_data:
+                        st.session_state[k] = float(sev_data[k])
+                st.session_state["_toast_msg"] = f"✔ {severity_choice} loaded — {sev_data['label']}"
+                st.session_state["_toast_icon"] = "✅"
+            except Exception as e:
+                st.session_state["_toast_msg"] = f"Failed to load severity preset: {e}"
+                st.session_state["_toast_icon"] = "🚨"
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -534,10 +563,17 @@ if run_btn:
         contain_logit  = float(raw_out[2])
         contain_prob   = float(torch.sigmoid(torch.tensor(contain_logit)).item())
         model_loaded   = True
+        # ── Success toast ─────────────────────────────────────────────────────
+        c_col, c_lbl = containment_color(contain_prob)
+        st.toast(
+            f"Prediction complete — Peak {peak_frac:.1%} · Day {time_to_peak:.0f} · {c_lbl}",
+            icon="✅",
+        )
     except Exception as e:
         st.error(f"Model load failed: {e}. Showing simulation-only mode.")
         model_loaded = False
         peak_frac, time_to_peak, contain_prob = None, None, None
+        st.toast("Model unavailable — simulation ground truth only", icon="⚠️")
 
     # ── Run ODE ───────────────────────────────────────────────────────────────
     t_sim, sol = run_simulation(
@@ -548,6 +584,25 @@ if run_btn:
     sim_peak_frac    = float(np.max(Z) / inputs["initial_population"])
     sim_peak_day     = float(t_sim[np.argmax(Z)])
     sim_survive_frac = float(S[-1] / inputs["initial_population"])
+
+    # ── Status strip — shows below control panel, above tabs ─────────────────
+    status_color = "#8db829" if sim_survive_frac > 0.10 else "#cc2200"
+    status_label = "CONTAINED" if sim_survive_frac > 0.60 else \
+                   "UNSTABLE"  if sim_survive_frac > 0.10 else "COLLAPSE"
+    st.markdown(
+        f"<div style='"
+        f"background:rgba({'141,184,41' if sim_survive_frac > 0.10 else '204,34,0'},.08);"
+        f"border:1px solid {status_color}44;"
+        f"padding:8px 16px;margin-bottom:10px;"
+        f"display:flex;align-items:center;justify-content:space-between;'>"
+        f"<div style='font-size:.7rem;color:{status_color};letter-spacing:2px;'>"
+        f"◉ SIMULATION COMPLETE — STATUS: {status_label}</div>"
+        f"<div style='font-size:.7rem;color:#5a5040;font-family:Share Tech Mono,monospace;'>"
+        f"Peak {sim_peak_frac:.1%} · Day {sim_peak_day:.0f} · "
+        f"Survivors {sim_survive_frac:.1%} · β={inputs['beta']:.4f} · ζ={inputs['zeta']:.4f}"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
 
     # ═════════════════════════════════════════════════════════════════════════
     #  TAB 1 — PREDICTION
@@ -781,15 +836,15 @@ if run_btn:
         st.markdown("---")
         st.markdown("## ◈ NEW HSI SUB-FACTORS — FETCH STATUS")
         fetch_status = [
-            {"Factor": "Hunting License Density",      "Category": "C", "Owner": "Kiana",   "Data Source": "NCWRC Annual Report",      "Status": "⚠ Manual download needed",  "Script": "fetch_category_c_extensions.py"},
-            {"Factor": "Congregation Density",          "Category": "C", "Owner": "Kiana",   "Data Source": "USDA ERS Rural Atlas",     "Status": "⚠ Partial (proxy available)", "Script": "fetch_category_c_extensions.py"},
-            {"Factor": "Volunteer Fire Dept Coverage",  "Category": "C", "Owner": "Kiana",   "Data Source": "USFA NFIRS",              "Status": "⚠ Fetch attempt in script",   "Script": "fetch_category_c_extensions.py"},
-            {"Factor": "Waterway Barrier Score",        "Category": "G", "Owner": "Rebecca", "Data Source": "USGS NHD",                "Status": "⚠ Manual GIS download",       "Script": "fetch_category_g_extensions.py"},
-            {"Factor": "National Forest Proximity",     "Category": "G", "Owner": "Rebecca", "Data Source": "USDA FS Boundaries",      "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
-            {"Factor": "Bridge Chokepoint Density",     "Category": "G", "Owner": "Rebecca", "Data Source": "FHWA NBI",                "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
-            {"Factor": "Agricultural Occupation Rate",  "Category": "E", "Owner": "Lennen",  "Data Source": "ACS C24010",              "Status": "🟢 Census API (key required)", "Script": "fetch_category_e_extensions.py"},
-            {"Factor": "Ham Radio License Density",     "Category": "E", "Owner": "Lennen",  "Data Source": "FCC ULS",                 "Status": "🟢 Auto-download available",  "Script": "fetch_category_e_extensions.py"},
-            {"Factor": "Physical Inactivity Rate (LPA)","Category": "H", "Owner": "Curtis",  "Data Source": "CDC PLACES 2023 (in repo)","Status": "✅ Ready — just not extracted","Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Hunting License Density",      "Category": "C", "Data Source": "NCWRC Annual Report",      "Status": "⚠ Manual download needed",   "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Congregation Density",          "Category": "C", "Data Source": "USDA ERS Rural Atlas",     "Status": "⚠ Partial (proxy available)", "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Volunteer Fire Dept Coverage",  "Category": "C", "Data Source": "USFA NFIRS",              "Status": "⚠ Fetch attempt in script",   "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Waterway Barrier Score",        "Category": "G", "Data Source": "USGS NHD",                "Status": "⚠ Manual GIS download",       "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "National Forest Proximity",     "Category": "G", "Data Source": "USDA FS Boundaries",      "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "Bridge Chokepoint Density",     "Category": "G", "Data Source": "FHWA NBI",                "Status": "🟢 Auto-download available",  "Script": "fetch_category_g_extensions.py"},
+            {"Factor": "Agricultural Occupation Rate",  "Category": "E", "Data Source": "ACS C24010",              "Status": "🟢 Census API (key required)", "Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Ham Radio License Density",     "Category": "E", "Data Source": "FCC ULS",                 "Status": "🟢 Auto-download available",  "Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Physical Inactivity Rate (LPA)","Category": "H", "Data Source": "CDC PLACES 2023 (in repo)","Status": "✅ Ready — just not extracted","Script": "fetch_category_e_extensions.py"},
         ]
         st.dataframe(pd.DataFrame(fetch_status), use_container_width=True, hide_index=True)
         st.markdown("""

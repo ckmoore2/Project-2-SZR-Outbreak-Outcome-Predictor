@@ -30,3 +30,4 @@ data/dasc6010/*.csv
 .idea
 key.json
 .idea/
+!/.venv/

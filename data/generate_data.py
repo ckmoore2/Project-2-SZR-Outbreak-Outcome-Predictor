@@ -1,133 +1,244 @@
 """
-Generate synthetic SZR outbreak data for training the surrogate ML model.
+data/generate_data.py
+─────────────────────
+Generates the synthetic SZR training dataset for the surrogate model.
 
-Simulates 10,000 scenarios using the SZR differential equation system and
-records peak zombie fraction, time to peak, and containment outcome.
+v2 changes vs original:
+  - HSI sub-scores are sampled from the REAL NC county distribution
+    (loaded from data/processed/hsi_distributions.json, produced by
+    data/integrate_real_hsi.py) rather than wide uniform ranges.
+  - Beta and kappa are derived from HSI using the same formula as the
+    simulation notebook, not randomized independently.
+  - Five zombie scenario profiles are included as a stratification
+    variable to ensure coverage across outbreak types.
+  - Outputs data/szr_synthetic.csv (same schema as before — train.py
+    requires no changes).
+
+Run order:
+  1. python data/integrate_real_hsi.py    ← produces hsi_distributions.json
+  2. python data/generate_data.py         ← produces szr_synthetic.csv
+  3. python model/train.py
 """
 
+import os
+import json
 import numpy as np
 import pandas as pd
-from scipy.integrate import odeint
+from scipy.integrate import solve_ivp
+
+_HERE  = os.path.dirname(os.path.abspath(__file__))
+_ROOT  = os.path.dirname(_HERE)
+DIST_PATH = os.path.join(_ROOT, "data", "processed", "hsi_distributions.json")
+OUT_PATH  = os.path.join(_ROOT, "data", "szr_synthetic.csv")
+
+N_SAMPLES    = 10_000   # total synthetic scenarios
+RANDOM_STATE = 42
+DAYS         = 180
+RNG          = np.random.default_rng(RANDOM_STATE)
 
 
-def szr_odes(y, t, beta, zeta, alpha, N):
-    """SZR differential equation system (frequency-dependent transmission).
+# ── Zombie scenario profiles ──────────────────────────────────────────────────
+# Each profile defines a (beta_base, kappa_base) pair matching the show canon.
+# Scenarios are sampled proportionally so all outbreak types are represented.
+SCENARIOS = {
+    "walking_dead": {"beta": 2.80e-3, "kappa": 2.52e-3, "weight": 0.20},
+    "last_of_us":   {"beta": 6.00e-3, "kappa": 3.90e-3, "weight": 0.20},
+    "world_war_z":  {"beta": 3.60e-3, "kappa": 2.88e-3, "weight": 0.20},
+    "28_days":      {"beta": 9.00e-3, "kappa": 4.50e-3, "weight": 0.25},
+    "rabies":       {"beta": 0.50e-3, "kappa": 4.75e-4, "weight": 0.15},
+}
 
-    Uses S*Z/N normalization so that beta is independent of population size
-    and R0 = beta / (zeta + alpha) regardless of N.
-    """
+
+# ── Fallback distributions (used when hsi_distributions.json not found) ───────
+FALLBACK_DIST = {
+    "health_score":         {"mean": 0.50, "std": 0.15, "min": 0.10, "max": 0.90},
+    "mobility_score":       {"mean": 0.50, "std": 0.18, "min": 0.05, "max": 0.98},
+    "infrastructure_score": {"mean": 0.50, "std": 0.16, "min": 0.08, "max": 0.95},
+    "education_score":      {"mean": 0.50, "std": 0.14, "min": 0.10, "max": 0.92},
+    "social_score":         {"mean": 0.50, "std": 0.17, "min": 0.05, "max": 0.95},
+    "geo_score":            {"mean": 0.50, "std": 0.20, "min": 0.00, "max": 1.00},
+}
+
+HSI_WEIGHTS = {
+    "health_score":         0.15,
+    "mobility_score":       0.15,
+    "infrastructure_score": 0.20,
+    "education_score":      0.10,
+    "social_score":         0.25,
+    "geo_score":            0.15,
+}
+
+CONTAINMENT_THRESHOLD = 0.10   # S/N > 10% at day 180 = contained
+
+
+# ── SZR ODE (frequency-dependent — matches streamlit_app.py) ─────────────────
+def szr_ode(t, y, beta, kappa, alpha=0.01):
     S, Z, R = y
-    dS_dt = -beta * S * Z / N
-    dZ_dt = beta * S * Z / N - zeta * Z - alpha * Z
-    dR_dt = zeta * Z + alpha * Z
-    return [dS_dt, dZ_dt, dR_dt]
+    N = S + Z + R
+    if N <= 0:
+        return [0.0, 0.0, 0.0]
+    dS = -beta * S * Z / N
+    dZ = beta * S * Z / N - (kappa + alpha) * Z
+    dR = (kappa + alpha) * Z
+    return [dS, dZ, dR]
 
 
-def simulate_scenario(beta, zeta, alpha, initial_population, initial_infected,
-                      mobility_score, infrastructure_score, health_score,
-                      t_max=180):
-    """Run a single SZR simulation and return outcome metrics."""
-    # Scale beta by (1 - mobility_score): higher restriction score reduces transmission
-    effective_beta = beta * (1.0 - mobility_score)
+def run_simulation(population, beta, kappa, initial_infected, alpha=0.01):
+    """Run SZR and return outcome metrics."""
+    S0 = max(float(population) - float(initial_infected), 1.0)
+    Z0 = float(initial_infected)
+    t_span = (0, DAYS)
+    t_eval = np.linspace(0, DAYS, DAYS * 2)
 
-    N = initial_population
-    Z0 = min(initial_infected, N - 1)
-    S0 = N - Z0
-    R0 = 0.0
+    sol = solve_ivp(
+        szr_ode,
+        t_span=t_span,
+        y0=[S0, Z0, 0.0],
+        t_eval=t_eval,
+        args=(beta, kappa, alpha),
+        method="RK45",
+        rtol=1e-6, atol=1e-9,
+    )
 
-    t = np.linspace(0, t_max, t_max + 1)
-    y0 = [S0, Z0, R0]
-
-    try:
-        sol = odeint(szr_odes, y0, t, args=(effective_beta, zeta, alpha, N),
-                     mxstep=5000, rtol=1e-6, atol=1e-8)
-    except Exception:
-        return None
-
-    S_t = sol[:, 0]
-    Z_t = sol[:, 1]
-
-    if np.any(np.isnan(sol)) or np.any(np.isinf(sol)):
-        return None
-
-    zombie_fraction = Z_t / N
-    peak_zombie_fraction = float(np.max(zombie_fraction))
-    time_to_peak = int(np.argmax(zombie_fraction))
-
-    # Containment: S(t) at end stabilizes above 10% of N
-    containment = 1 if S_t[-1] > 0.10 * N else 0
+    S, Z = sol.y[0], sol.y[1]
+    N    = float(population)
+    peak_idx = int(np.argmax(Z))
 
     return {
-        "beta": beta,
-        "zeta": zeta,
-        "alpha": alpha,
-        "initial_population": initial_population,
-        "initial_infected": initial_infected,
-        "mobility_score": mobility_score,
-        "infrastructure_score": infrastructure_score,
-        "health_score": health_score,
-        "peak_zombie_fraction": peak_zombie_fraction,
-        "time_to_peak": time_to_peak,
-        "containment": containment,
+        "peak_zombie_fraction": float(np.clip(Z[peak_idx] / N, 0, 1)),
+        "time_to_peak":         float(sol.t[peak_idx]),
+        "containment":          int(S[-1] / N > CONTAINMENT_THRESHOLD),
     }
 
 
-def generate_dataset(n_scenarios=10000, seed=42):
-    """Sample random parameters and simulate all scenarios."""
-    rng = np.random.default_rng(seed)
+def load_distributions():
+    """Load real NC HSI distributions or fall back to defaults."""
+    if os.path.exists(DIST_PATH):
+        with open(DIST_PATH) as f:
+            dist = json.load(f)
+        print(f"Loaded real NC HSI distributions from {DIST_PATH}")
+        return dist, True
+    else:
+        print(f"WARNING: {DIST_PATH} not found.")
+        print("  Run data/integrate_real_hsi.py first for real NC distributions.")
+        print("  Falling back to wide uniform distributions.")
+        return FALLBACK_DIST, False
 
-    beta_vals = rng.uniform(0.001, 0.9, n_scenarios)
-    zeta_vals = rng.uniform(0.001, 0.5, n_scenarios)
-    alpha_vals = rng.uniform(0.0001, 0.01, n_scenarios)
-    pop_vals = rng.uniform(5000, 1_000_000, n_scenarios)
-    infected_vals = rng.uniform(1, 50, n_scenarios)
-    # HSI features — correspond to DASC 6010 HSI categories:
-    #   mobility_score       → Section M (1 − score_M; inverted escape capacity)
-    #   infrastructure_score → Section I (score_I; prepper density, grid independence)
-    #   health_score         → Section H (score_H; obesity, disability, nursing homes)
-    mobility_vals = rng.uniform(0.0, 1.0, n_scenarios)
-    infrastructure_vals = rng.uniform(0.0, 1.0, n_scenarios)
-    health_vals = rng.uniform(0.0, 1.0, n_scenarios)
 
-    records = []
-    for i in range(n_scenarios):
-        result = simulate_scenario(
-            beta=beta_vals[i],
-            zeta=zeta_vals[i],
-            alpha=alpha_vals[i],
-            initial_population=pop_vals[i],
-            initial_infected=infected_vals[i],
-            mobility_score=mobility_vals[i],
-            infrastructure_score=infrastructure_vals[i],
-            health_score=health_vals[i],
-        )
-        if result is not None:
-            records.append(result)
+def sample_hsi_score(name, dist, real=True):
+    """
+    Sample a single HSI sub-score.
+    If real distributions are available, sample from a clipped normal
+    anchored to the actual NC county mean and std.
+    Otherwise sample from uniform [0, 1].
+    """
+    if real and name in dist:
+        d = dist[name]
+        val = RNG.normal(loc=d["mean"], scale=d["std"])
+        return float(np.clip(val, d.get("min", 0.0), d.get("max", 1.0)))
+    return float(RNG.uniform(0.0, 1.0))
 
-        if (i + 1) % 1000 == 0:
-            print(f"  Simulated {i + 1}/{n_scenarios} scenarios...")
 
-    df = pd.DataFrame(records)
-    # Drop rows with NaN or infinite values
-    df = df.replace([np.inf, -np.inf], np.nan).dropna()
-    return df
+def compute_hsi(scores):
+    """Composite HSI from sub-scores dict."""
+    return float(np.clip(
+        sum(HSI_WEIGHTS[k] * v for k, v in scores.items()),
+        0.0, 1.0
+    ))
+
+
+def derive_beta_kappa(hsi, beta_base, kappa_base, a=0.3, b=0.5):
+    """
+    Per-scenario beta and kappa modified by HSI.
+    Higher HSI → lower beta (better at avoiding contact)
+               → higher kappa (better at neutralising zombies)
+    """
+    beta  = float(np.clip(beta_base  * (1.0 - a * hsi), beta_base  * 0.2, beta_base))
+    kappa = float(np.clip(kappa_base * (1.0 + b * hsi), kappa_base,        kappa_base * 2.0))
+    return beta, kappa
 
 
 def main():
-    import os
+    print("=" * 60)
+    print("SZR Synthetic Dataset Generator v2")
+    print(f"Target: {N_SAMPLES:,} scenarios → {OUT_PATH}")
+    print("=" * 60)
 
-    n_scenarios = int(os.environ.get("N_SCENARIOS", 10000))
-    print(f"Generating SZR synthetic dataset ({n_scenarios} scenarios)...")
-    df = generate_dataset(n_scenarios=n_scenarios)
+    dist, real = load_distributions()
 
-    out_path = os.path.join(os.path.dirname(__file__), "szr_synthetic.csv")
-    df.to_csv(out_path, index=False)
+    # Build scenario sample counts proportional to weights
+    scenario_names = list(SCENARIOS.keys())
+    weights        = np.array([SCENARIOS[s]["weight"] for s in scenario_names])
+    counts         = np.round(weights / weights.sum() * N_SAMPLES).astype(int)
+    counts[-1]     = N_SAMPLES - counts[:-1].sum()   # ensure exact total
 
-    print(f"\nDataset shape: {df.shape}")
-    containment_counts = df["containment"].value_counts()
-    print(f"Containment class balance:\n{containment_counts}")
-    print(f"  Containment rate: {containment_counts.get(1, 0) / len(df):.2%}")
-    print(f"\nSaved to {out_path}")
+    rows = []
+    total = 0
+
+    for scenario_name, n in zip(scenario_names, counts):
+        sc = SCENARIOS[scenario_name]
+        print(f"\nGenerating {n:,} samples for scenario: {scenario_name}")
+
+        for i in range(n):
+            # Sample HSI sub-scores from real NC distribution
+            hsi_scores = {k: sample_hsi_score(k, dist, real) for k in HSI_WEIGHTS}
+            hsi        = compute_hsi(hsi_scores)
+
+            # Derive effective beta/kappa for this county-scenario combination
+            beta, kappa = derive_beta_kappa(hsi, sc["beta"], sc["kappa"])
+
+            # Sample population and initial infected
+            population       = int(RNG.integers(5_000, 1_200_000))
+            initial_infected = int(RNG.integers(1, min(500, population // 100 + 1)))
+
+            # Run simulation
+            try:
+                outcome = run_simulation(population, beta, kappa, initial_infected)
+            except Exception:
+                continue
+
+            rows.append({
+                # Input features (must match FEATURE_COLUMNS in szr_predictor.py)
+                "beta":                beta,
+                "zeta":               kappa,
+                "alpha":              0.01,
+                "initial_population": population,
+                "initial_infected":   initial_infected,
+                "mobility_score":     hsi_scores["mobility_score"],
+                "infrastructure_score": hsi_scores["infrastructure_score"],
+                "health_score":       hsi_scores["health_score"],
+                # Additional HSI scores (not currently in model features but
+                # available for future ablations)
+                "education_score":    hsi_scores["education_score"],
+                "social_score":       hsi_scores["social_score"],
+                "geo_score":          hsi_scores["geo_score"],
+                "hsi":                hsi,
+                # Scenario metadata
+                "scenario":           scenario_name,
+                # Targets
+                "peak_zombie_fraction": outcome["peak_zombie_fraction"],
+                "time_to_peak":         outcome["time_to_peak"],
+                "containment":          outcome["containment"],
+            })
+
+            total += 1
+            if (total % 1000) == 0:
+                print(f"  {total:,} / {N_SAMPLES:,} complete...", end="\r")
+
+    df = pd.DataFrame(rows)
+    print(f"\n\nGenerated {len(df):,} valid scenarios")
+    print(f"Containment rate: {df['containment'].mean():.1%}")
+    print(f"Peak zombie frac — mean: {df['peak_zombie_fraction'].mean():.3f}  "
+          f"std: {df['peak_zombie_fraction'].std():.3f}")
+    print(f"Time to peak     — mean: {df['time_to_peak'].mean():.1f}d  "
+          f"std: {df['time_to_peak'].std():.1f}d")
+
+    print(f"\nScenario breakdown:")
+    print(df.groupby("scenario")[["peak_zombie_fraction","containment"]].mean().round(3))
+
+    df.to_csv(OUT_PATH, index=False)
+    print(f"\nSaved → {OUT_PATH}")
+    print("\nNext: python model/train.py")
 
 
 if __name__ == "__main__":
