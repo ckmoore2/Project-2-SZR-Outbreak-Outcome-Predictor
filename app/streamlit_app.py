@@ -2,31 +2,21 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import joblib
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from scipy.special import expit as _expit
+from scipy.integrate import odeint
 import shap
 import os
-import sys
-
-# ── Project root on path so model/ is importable regardless of CWD ───────────
-_APP_DIR      = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_APP_DIR)
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
-
-from model.szr_predictor import SZRPredictor, FEATURE_COLUMNS
-from model.szr_model import run_simulation_v1 as run_simulation
-from model.config import SCENARIOS as _SCENARIOS
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="OUTBREAK RESPONSE TERMINAL",
     page_icon="☣",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ── Terminal CSS ──────────────────────────────────────────────────────────────
@@ -126,16 +116,33 @@ body::after {
 </style>
 """, unsafe_allow_html=True)
 
+# ── Model definition (must match train.py) ────────────────────────────────────
+class SZRPredictor(nn.Module):
+    def __init__(self, input_dim=8, hidden_dims=None, output_dim=3, dropout=0.2):
+        super().__init__()
+        if hidden_dims is None:
+            hidden_dims = [64, 128]
+        layers = []
+        prev = input_dim
+        for h in hidden_dims:
+            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
+            prev = h
+        layers.append(nn.Linear(prev, output_dim))
+        self.network = nn.Sequential(*layers)   # must match train.py attribute name
+
+    def forward(self, x):
+        return self.network(x)
+
+
 # ── Load model + scaler ───────────────────────────────────────────────────────
-# SZRPredictor is imported from model/szr_predictor.py — single definition, no drift.
-MODEL_PATH  = os.path.join(_PROJECT_ROOT, "outputs", "best_model.pt")
-SCALER_PATH = os.path.join(_PROJECT_ROOT, "outputs", "scaler.pkl")
+MODEL_PATH  = os.path.join(os.path.dirname(__file__), "..", "outputs", "best_model.pt")
+SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.pkl")
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
-        state = torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+        state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
     except RuntimeError as e:
         err = str(e)
@@ -153,6 +160,26 @@ def load_model():
 @st.cache_resource
 def load_scaler():
     return joblib.load(SCALER_PATH)
+
+
+# ── SZR ODE ───────────────────────────────────────────────────────────────────
+def szr_ode(y, t, beta, zeta, alpha):
+    S, Z, R = y
+    N = S + Z + R
+    if N <= 0:
+        return [0, 0, 0]
+    dS = -beta * S * Z / N
+    dZ =  beta * S * Z / N - zeta * Z - alpha * Z
+    dR =  zeta * Z + alpha * Z
+    return [dS, dZ, dR]
+
+def run_simulation(beta, zeta, alpha, population, initial_infected, days=180):
+    S0 = population - initial_infected
+    Z0 = initial_infected
+    R0 = 0.0
+    t  = np.linspace(0, days, days * 4)
+    sol = odeint(szr_ode, [S0, Z0, R0], t, args=(beta, zeta, alpha))
+    return t, sol
 
 
 # ── Matplotlib terminal style ─────────────────────────────────────────────────
@@ -177,16 +204,16 @@ def terminal_fig(figsize=(10, 4)):
 # Current order mirrors: beta, zeta, alpha, initial_population, initial_infected,
 #                        mobility_score, infrastructure_score, health_score
 FEATURE_META = {
-    "beta":               {"label": "Transmission Rate (β)",        "min": 0.0001, "max": 1.0,  "default": 0.25, "step": 0.01, "help": "Rate at which zombies infect susceptibles"},
-    "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.0001, "max": 0.5,  "default": 0.10, "step": 0.01, "help": "Rate at which zombies are neutralised"},
-    "alpha":              {"label": "Natural Death Rate (α)",        "min": 0.001,"max": 0.05, "default": 0.01, "step": 0.001,"help": "Background natural mortality rate"},
+    "beta":               {"label": "Transmission Rate (β)",        "min": 0.0001, "max": 1.0,  "default": 0.25, "step": 0.0001, "help": "Rate at which zombies infect susceptibles"},
+    "zeta":               {"label": "Removal Rate (ζ)",             "min": 0.0001, "max": 0.5,  "default": 0.10, "step": 0.0001, "help": "Rate at which zombies are neutralised"},
+    "alpha":              {"label": "Natural Death Rate (α)",        "min": 0.001, "max": 1.0,  "default": 0.01, "step": 0.001, "help": "Background natural mortality rate"},
     "initial_population": {"label": "County Population",            "min": 5000, "max": 1200000,"default": 300000,"step": 1000, "help": "Starting susceptible population"},
     "initial_infected":   {"label": "Initial Infected (Z₀)",        "min": 1,    "max": 5000, "default": 10,    "step": 1,    "help": "Seed zombie count at outbreak start"},
     "mobility_score":     {"label": "Mobility / Escape Score (M)",  "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-M: evacuation routes, vehicle access, transit"},
     "infrastructure_score":{"label":"Infrastructure Score (I)",     "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-I: power, water, food self-sufficiency"},
     "health_score":       {"label": "Health & Fitness Score (H)",   "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-H: physical capability, medical access"},
 }
-FEATURE_ORDER = FEATURE_COLUMNS  # guaranteed to match model/szr_predictor.py
+FEATURE_ORDER = list(FEATURE_META.keys())
 
 
 # ── Containment colour helper ─────────────────────────────────────────────────
@@ -199,81 +226,79 @@ def containment_color(p):
         return "#cc2200", "COLLAPSE"
 
 
-# ── County presets (NC census + real HSI from integrate_real_hsi.py) ──────────
+# ── County presets (NC census + HSI estimates) ────────────────────────────────
 COUNTY_PRESETS = {
     "— Select a county —": None,
-    "Wake (Raleigh)":             {"initial_population": 1132103, "initial_infected": 5, "mobility_score": 1.000, "infrastructure_score": 0.222, "health_score": 0.423},
-    "Mecklenburg (Charlotte)":    {"initial_population": 1115403, "initial_infected": 5, "mobility_score": 0.921, "infrastructure_score": 0.218, "health_score": 0.574},
-    "Guilford (Greensboro)":      {"initial_population": 539557,  "initial_infected": 5, "mobility_score": 0.835, "infrastructure_score": 0.260, "health_score": 0.675},
-    "Durham":                     {"initial_population": 325101,  "initial_infected": 5, "mobility_score": 0.768, "infrastructure_score": 0.103, "health_score": 0.695},
-    "Forsyth (Winston-Salem)":    {"initial_population": 383739,  "initial_infected": 5, "mobility_score": 0.796, "infrastructure_score": 0.214, "health_score": 0.194},
-    "Cumberland (Fayetteville)":  {"initial_population": 335207,  "initial_infected": 5, "mobility_score": 0.774, "infrastructure_score": 0.242, "health_score": 0.154},
-    "Buncombe (Asheville)":       {"initial_population": 269449,  "initial_infected": 5, "mobility_score": 0.830, "infrastructure_score": 0.134, "health_score": 0.843},
-    "Pitt (Greenville/ECU)":      {"initial_population": 171196,  "initial_infected": 5, "mobility_score": 0.620, "infrastructure_score": 0.252, "health_score": 0.333},
-    "New Hanover (Wilmington)":   {"initial_population": 228134,  "initial_infected": 5, "mobility_score": 0.775, "infrastructure_score": 0.170, "health_score": 0.721},
-    "Alamance (Burlington)":      {"initial_population": 171779,  "initial_infected": 5, "mobility_score": 0.819, "infrastructure_score": 0.171, "health_score": 0.611},
-    "Onslow (Jacksonville)":      {"initial_population": 203686,  "initial_infected": 5, "mobility_score": 0.884, "infrastructure_score": 0.316, "health_score": 0.656},
-    "Union (Monroe)":             {"initial_population": 240109,  "initial_infected": 5, "mobility_score": 0.948, "infrastructure_score": 0.447, "health_score": 0.578},
-    "Wayne (Goldsboro)":          {"initial_population": 117480,  "initial_infected": 5, "mobility_score": 0.693, "infrastructure_score": 0.304, "health_score": 0.390},
-    "Cabarrus (Concord)":         {"initial_population": 226396,  "initial_infected": 5, "mobility_score": 0.897, "infrastructure_score": 0.161, "health_score": 0.288},
-    "Orange (Chapel Hill)":       {"initial_population": 145919,  "initial_infected": 5, "mobility_score": 0.820, "infrastructure_score": 0.396, "health_score": 0.514},
+    "Wake County (Raleigh)":        {"initial_population": 1117742, "initial_infected": 50,  "mobility_score": 0.58, "infrastructure_score": 0.62, "health_score": 0.61},
+    "Mecklenburg County (Charlotte)":{"initial_population": 1115482, "initial_infected": 50,  "mobility_score": 0.56, "infrastructure_score": 0.60, "health_score": 0.59},
+    "Guilford County (Greensboro)": {"initial_population": 541299,  "initial_infected": 20,  "mobility_score": 0.50, "infrastructure_score": 0.55, "health_score": 0.52},
+    "Durham County":                {"initial_population": 332890,  "initial_infected": 10,  "mobility_score": 0.53, "infrastructure_score": 0.57, "health_score": 0.60},
+    "Forsyth County (W-Salem)":     {"initial_population": 390329,  "initial_infected": 15,  "mobility_score": 0.49, "infrastructure_score": 0.54, "health_score": 0.51},
+    "Cumberland County (Fayetteville)":{"initial_population": 337093,"initial_infected": 10, "mobility_score": 0.55, "infrastructure_score": 0.58, "health_score": 0.60},
+    "Buncombe County (Asheville)":  {"initial_population": 274089,  "initial_infected": 5,   "mobility_score": 0.48, "infrastructure_score": 0.52, "health_score": 0.55},
+    "Pitt County (Greenville/ECU)": {"initial_population": 184226,  "initial_infected": 5,   "mobility_score": 0.42, "infrastructure_score": 0.44, "health_score": 0.46},
+    "New Hanover County (Wilmington)":{"initial_population": 234473, "initial_infected": 8,  "mobility_score": 0.46, "infrastructure_score": 0.50, "health_score": 0.53},
+    "Alamance County (Burlington)": {"initial_population": 169509,  "initial_infected": 5,   "mobility_score": 0.44, "infrastructure_score": 0.47, "health_score": 0.48},
 }
-# NOTE: social_score is not used directly as a slider input — it feeds into HSI
-# via integrate_real_hsi.py. The values above reflect the current pipeline run.
 
 # ── Outbreak scenario presets ─────────────────────────────────────────────────
-# SHOW_PRESETS: built from model/config.py SCENARIOS — single source of truth.
-# Epidemiological params (beta, kappa, alpha) come from config; only emoji,
-# initial_infected, and description are defined here.
-_SHOW_MAP = [
-    ("🧟", "twd",    10, "Slow walkers, high removal — humans likely survive"),
-    ("🍄", "tlou",   20, "Fungal spread, organised clickers — marginal survival"),
-    ("🌍", "wwz",    50, "Fast movers, global scale — NC likely holds"),
-    ("⚡", "28days",  5, "Rage virus, extreme spread — zombies win in NC"),
-    ("🦠", "rabies",  2, "Real-world ceiling — humans dominate easily"),
-]
-SHOW_PRESETS = {"— Select a show scenario —": None}
-SHOW_PRESETS.update({
-    f"{emoji} {_SCENARIOS[key]['label']}": {
-        "beta":             _SCENARIOS[key]["beta"],
-        "zeta":             _SCENARIOS[key]["kappa"],
-        "alpha":            _SCENARIOS[key]["alpha"],
-        "initial_infected": z0,
-        "label":            f"β={_SCENARIOS[key]['beta']:.4f} · α={_SCENARIOS[key]['alpha']:.2f} · {desc}",
-        "group":            "show",
-    }
-    for emoji, key, z0, desc in _SHOW_MAP
-})
-
-# SEVERITY_PRESETS: operational outbreak levels (not show-specific)
-SEVERITY_PRESETS = {
-    "— Select a severity level —": None,
-    "🟢 Early Detection": {
+# Two groups: zombie show canon (from config SCENARIOS) + operational severity levels
+SCENARIO_PRESETS = {
+    # ── Zombie show canon ─────────────────────────────────────────────────────
+    "— Select a scenario —":           None,
+    "🧟 The Walking Dead":             {
+        "beta": 2.80e-3, "zeta": 2.52e-3, "alpha": 0.90, "initial_infected": 10,
+        "label": "β=0.0028 · α=0.90 · Slow walkers, high removal — humans likely survive",
+        "group": "show",
+    },
+    "🍄 The Last of Us":               {
+        "beta": 6.00e-3, "zeta": 3.90e-3, "alpha": 0.65, "initial_infected": 20,
+        "label": "β=0.0060 · α=0.65 · Fungal spread, organised clickers — marginal survival",
+        "group": "show",
+    },
+    "🌍 World War Z":                  {
+        "beta": 3.60e-3, "zeta": 2.88e-3, "alpha": 0.80, "initial_infected": 50,
+        "label": "β=0.0036 · α=0.80 · Fast movers, global scale — NC likely holds",
+        "group": "show",
+    },
+    "⚡ 28 Days Later":                {
+        "beta": 9.00e-3, "zeta": 4.50e-3, "alpha": 0.50, "initial_infected": 5,
+        "label": "β=0.0090 · α=0.50 · Rage virus, extreme spread — zombies win in NC",
+        "group": "show",
+    },
+    "🦠 Rabies (real baseline)":       {
+        "beta": 0.50e-3, "zeta": 4.75e-4, "alpha": 0.95, "initial_infected": 2,
+        "label": "β=0.0005 · α=0.95 · Real-world ceiling — humans dominate easily",
+        "group": "show",
+    },
+    # ── Operational severity levels ───────────────────────────────────────────
+    "── Severity Presets ──":          None,
+    "🟢 Early Detection":              {
         "beta": 0.15, "zeta": 0.18, "alpha": 0.01, "initial_infected": 3,
         "label": "Low β · High ζ · Caught before community spread",
         "group": "severity",
     },
-    "🟡 Active Spread": {
+    "🟡 Active Spread":                {
         "beta": 0.30, "zeta": 0.10, "alpha": 0.01, "initial_infected": 25,
         "label": "Moderate β · Standard removal rate",
         "group": "severity",
     },
-    "🔴 Rapid Outbreak": {
+    "🔴 Rapid Outbreak":               {
         "beta": 0.55, "zeta": 0.08, "alpha": 0.01, "initial_infected": 100,
         "label": "High β · Overwhelmed response infrastructure",
         "group": "severity",
     },
-    "☠  Total Collapse": {
+    "☠  Total Collapse":               {
         "beta": 0.80, "zeta": 0.04, "alpha": 0.01, "initial_infected": 500,
         "label": "Runaway infection · No effective containment",
         "group": "severity",
     },
-    "🪖 Military Response": {
+    "🪖 Military Response":            {
         "beta": 0.25, "zeta": 0.35, "alpha": 0.01, "initial_infected": 20,
         "label": "High removal · Fort Liberty / Camp Lejeune scenario",
         "group": "severity",
     },
-    "🏥 Medical Containment": {
+    "🏥 Medical Containment":          {
         "beta": 0.20, "zeta": 0.22, "alpha": 0.01, "initial_infected": 10,
         "label": "Active quarantine + treatment protocols",
         "group": "severity",
@@ -302,6 +327,15 @@ if st.session_state["_toast_msg"]:
     st.session_state["_toast_msg"] = None
     st.session_state["_toast_icon"] = "✅"
 
+# ── Split show vs severity preset dicts ──────────────────────────────────────
+SHOW_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
+                if v is not None and v.get("group") == "show"}
+SHOW_PRESETS = {"— Select a show scenario —": None, **SHOW_PRESETS}
+
+SEVERITY_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
+                    if v is not None and v.get("group") == "severity"}
+SEVERITY_PRESETS = {"— Select a severity level —": None, **SEVERITY_PRESETS}
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAGE HEADER
@@ -314,7 +348,7 @@ st.markdown("""
   </div>
   <div style='text-align:right;'>
     <div style='font-size:.6rem; color:#5a5040; letter-spacing:2px;'>MODEL</div>
-    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [128→256→128]</div>
+    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [64→128]</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -476,7 +510,7 @@ with ctrl_right:
     run_btn = st.button("▶  RUN PREDICTION", type="primary", use_container_width=True)
     st.markdown("""
     <div style='font-size:.6rem; color:#3a3028; line-height:1.6; margin-top:6px;'>
-    Model: SZRPredictor MLP [128→256→128] · Dataset: szr_synthetic.csv<br>
+    Model: SZRPredictor MLP [64→128] · Dataset: szr_synthetic.csv<br>
     Features: β, ζ, α, N₀, Z₀, HSI-H/M/I · Split: 80/10/10 · seed=42
     </div>""", unsafe_allow_html=True)
 
@@ -484,7 +518,9 @@ st.markdown("<div style='border-top:1px solid rgba(204,34,0,.3); margin:16px 0 1
             unsafe_allow_html=True)
 
 
-# ── Sigmoid modifier helpers ──────────────────────────────────────────────────
+# ── Sigmoid modifier helpers (inline) ────────────────────────────────────────
+from scipy.special import expit as _expit
+
 def _sigmoid_kappa_modifier(hsi, scale=1.5, steepness=6.0):
     hsi = float(np.clip(hsi, 0.0, 1.0))
     return 1.0 + scale * (_expit(steepness * (hsi - 0.5)) - 0.5)
@@ -593,7 +629,7 @@ if run_btn:
 
             st.markdown("""
             <div style='font-size:.7rem; color:#3a3028; margin-top:8px;'>
-            ↑ Neural network output · Model: SZRPredictor [128→256→128] · Experiment D
+            ↑ Neural network output · Model: SZRPredictor [64→128] · Experiment C
             </div>""", unsafe_allow_html=True)
         else:
             st.info("Model unavailable — displaying simulation ground truth only.")
@@ -834,7 +870,7 @@ else:
                 AWAITING PARAMETERS
             </div>
             <div style='font-size:.75rem; color:#5a5040; letter-spacing:2px; margin-top:8px;'>
-                Configure outbreak parameters above and press RUN PREDICTION
+                Configure outbreak parameters in the sidebar and press RUN PREDICTION
             </div>
         </div>
         """, unsafe_allow_html=True)
