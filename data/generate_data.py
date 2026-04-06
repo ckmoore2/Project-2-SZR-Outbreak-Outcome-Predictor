@@ -42,15 +42,18 @@ DAYS         = 180
 RNG          = np.random.default_rng(RANDOM_STATE)
 
 
-# ── Zombie scenario profiles ──────────────────────────────────────────────────
-# Each profile defines a (beta_base, kappa_base) pair matching the show canon.
-# Scenarios are sampled proportionally so all outbreak types are represented.
+# ── Operational severity profiles ────────────────────────────────────────────
+# Training data must cover the FULL range of the app's sliders to produce
+# varied outcomes (mix of containment and collapse). Show-canon params
+# (β ~0.003–0.009) are stored in model/config.py for app presets only —
+# they produce β < κ+α so outbreaks never start, creating a degenerate dataset.
+# These ranges match the operational severity presets in app/streamlit_app.py.
 SCENARIOS = {
-    "walking_dead": {"beta": 2.80e-3, "kappa": 2.52e-3, "weight": 0.20},
-    "last_of_us":   {"beta": 6.00e-3, "kappa": 3.90e-3, "weight": 0.20},
-    "world_war_z":  {"beta": 3.60e-3, "kappa": 2.88e-3, "weight": 0.20},
-    "28_days":      {"beta": 9.00e-3, "kappa": 4.50e-3, "weight": 0.25},
-    "rabies":       {"beta": 0.50e-3, "kappa": 4.75e-4, "weight": 0.15},
+    "early_detection": {"beta_min": 0.05,  "beta_max": 0.22, "zeta_min": 0.15, "zeta_max": 0.50, "weight": 0.15},
+    "active_spread":   {"beta_min": 0.20,  "beta_max": 0.42, "zeta_min": 0.07, "zeta_max": 0.20, "weight": 0.25},
+    "rapid_outbreak":  {"beta_min": 0.40,  "beta_max": 0.65, "zeta_min": 0.04, "zeta_max": 0.14, "weight": 0.25},
+    "total_collapse":  {"beta_min": 0.60,  "beta_max": 0.90, "zeta_min": 0.02, "zeta_max": 0.07, "weight": 0.20},
+    "military":        {"beta_min": 0.15,  "beta_max": 0.35, "zeta_min": 0.28, "zeta_max": 0.50, "weight": 0.15},
 }
 
 
@@ -180,8 +183,15 @@ def main() -> None:
             hsi_scores = {k: sample_hsi_score(k, dist, real) for k in HSI_WEIGHTS}
             hsi        = compute_hsi(hsi_scores)
 
-            # Derive effective beta/kappa for this county-scenario combination
-            beta, kappa = derive_beta_kappa(hsi, sc["beta"], sc["kappa"])
+            # Sample β, ζ, α directly from the severity-level ranges.
+            # Higher HSI counties get slight β reduction and ζ boost
+            # to reflect better community response, but within each severity band.
+            beta_raw  = float(RNG.uniform(sc["beta_min"], sc["beta_max"]))
+            zeta_raw  = float(RNG.uniform(sc["zeta_min"], sc["zeta_max"]))
+            hsi_scale = 1.0 + 0.15 * (hsi - 0.5)          # ±7.5% HSI effect on β
+            beta      = float(np.clip(beta_raw / hsi_scale, 0.0001, 1.0))
+            zeta      = float(np.clip(zeta_raw * hsi_scale, 0.0001, 0.50))
+            alpha     = float(RNG.uniform(0.001, 0.05))
 
             # Sample population and initial infected
             population       = int(RNG.integers(5_000, 1_200_000))
@@ -189,28 +199,28 @@ def main() -> None:
 
             # Run simulation
             try:
-                outcome = run_simulation(population, beta, kappa, initial_infected)
+                outcome = run_simulation(population, beta, zeta, initial_infected, alpha)
             except Exception:
                 continue
 
             rows.append({
                 # Input features (must match FEATURE_COLUMNS in szr_predictor.py)
                 "beta":                beta,
-                "zeta":               kappa,
-                "alpha":              0.01,
-                "initial_population": population,
-                "initial_infected":   initial_infected,
-                "mobility_score":     hsi_scores["mobility_score"],
+                "zeta":                zeta,
+                "alpha":               alpha,
+                "initial_population":  population,
+                "initial_infected":    initial_infected,
+                "mobility_score":      hsi_scores["mobility_score"],
                 "infrastructure_score": hsi_scores["infrastructure_score"],
-                "health_score":       hsi_scores["health_score"],
+                "health_score":        hsi_scores["health_score"],
                 # Additional HSI scores (not currently in model features but
                 # available for future ablations)
-                "education_score":    hsi_scores["education_score"],
-                "social_score":       hsi_scores["social_score"],
-                "geo_score":          hsi_scores["geo_score"],
-                "hsi":                hsi,
+                "education_score":     hsi_scores["education_score"],
+                "social_score":        hsi_scores["social_score"],
+                "geo_score":           hsi_scores["geo_score"],
+                "hsi":                 hsi,
                 # Scenario metadata
-                "scenario":           scenario_name,
+                "scenario":            scenario_name,
                 # Targets
                 "peak_zombie_fraction": outcome["peak_zombie_fraction"],
                 "time_to_peak":         outcome["time_to_peak"],

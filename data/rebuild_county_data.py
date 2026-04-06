@@ -455,9 +455,10 @@ def build_social(pop_df):
     df["vet_count"] = df["vet_count"].fillna(0)
 
     # Gun ownership proxy: rural + military counties higher
-    df["permit_density"] = df["county_fips"].map(military_fips).fillna(
-        np.random.uniform(0.08, 0.28, len(df))
+    _permit_fallback = pd.Series(
+        np.random.uniform(0.08, 0.28, len(df)), index=df.index
     )
+    df["permit_density"] = df["county_fips"].map(military_fips).fillna(_permit_fallback)
     df["harvest_yield"] = normalize(df["population"].apply(np.log1p)) * 0.5 + \
                           np.random.uniform(0.1, 0.5, len(df))
 
