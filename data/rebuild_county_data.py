@@ -146,10 +146,10 @@ def build_population():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  2. HEALTH SCORES  (CDC PLACES API + ACS disability)
+#  2. HEALTH SCORES  (CDC PLACES API + ACS disability + LPA inactivity)
 # ══════════════════════════════════════════════════════════════════════════════
 def build_health(pop_df):
-    print("\n[2/7] Health scores — CDC PLACES + ACS B18105...")
+    print("\n[2/7] Health scores — CDC PLACES + ACS B18105 + LPA inactivity...")
 
     # CDC PLACES county-level obesity rate
     obesity_rows = []
@@ -205,22 +205,44 @@ def build_health(pop_df):
         np.random.uniform(-0.5, 0.5, len(nursing_df))
     ).clip(0.5, 15.0)
 
+    # CDC PLACES LPA (physical inactivity) — tract-level aggregated to county median
+    lpa_path = os.path.join(_HERE, "raw", "cdc_places_inactivity.csv")
+    if os.path.exists(lpa_path):
+        lpa_raw = pd.read_csv(lpa_path, usecols=["countyfips", "data_value"])
+        lpa_raw["county_fips"] = lpa_raw["countyfips"].astype(str).str.zfill(5)
+        lpa_county = (lpa_raw.groupby("county_fips")["data_value"]
+                      .median().reset_index()
+                      .rename(columns={"data_value": "inactivity_rate"}))
+        print(f"  LPA inactivity: {len(lpa_county)} counties loaded")
+    else:
+        lpa_county = pd.DataFrame(columns=["county_fips", "inactivity_rate"])
+        print("  LPA data not found — inactivity factor skipped (fallback synthetic)")
+
     df = (pop_df[["county_fips", "county"]]
           .merge(obesity_df, on="county_fips", how="left")
           .merge(dis_df,     on="county_fips", how="left")
-          .merge(nursing_df[["county_fips", "nursing_home_density"]], on="county_fips", how="left"))
+          .merge(nursing_df[["county_fips", "nursing_home_density"]], on="county_fips", how="left")
+          .merge(lpa_county, on="county_fips", how="left"))
 
     df["obesity_rate"]           = df["obesity_rate"].fillna(df["obesity_rate"].median())
     df["ambulatory_disability"]  = df["ambulatory_disability"].fillna(df["ambulatory_disability"].median())
     df["nursing_home_density"]   = df["nursing_home_density"].fillna(df["nursing_home_density"].median())
+    # Fallback: synthetic inactivity if LPA file missing or county not matched
+    _inactivity_median = df["inactivity_rate"].median()
+    if np.isnan(_inactivity_median):
+        _inactivity_median = 28.0
+    df["inactivity_rate"] = df["inactivity_rate"].fillna(_inactivity_median)
 
-    # score_H: all three factors are negative — flip so 1 = healthiest
-    df["obesity_norm"]   = normalize(df["obesity_rate"])
-    df["disab_norm"]     = normalize(df["ambulatory_disability"])
-    df["nursing_norm"]   = normalize(df["nursing_home_density"])
-    df["score_H"] = 1 - (df["obesity_norm"] * (1/3) +
-                         df["disab_norm"]    * (1/3) +
-                         df["nursing_norm"]  * (1/3))
+    # score_H: all four factors are negative — flip so 1 = healthiest
+    # Weights: obesity 0.30, disability 0.30, nursing 0.20, inactivity 0.20
+    df["obesity_norm"]     = normalize(df["obesity_rate"])
+    df["disab_norm"]       = normalize(df["ambulatory_disability"])
+    df["nursing_norm"]     = normalize(df["nursing_home_density"])
+    df["inactivity_norm"]  = normalize(df["inactivity_rate"])
+    df["score_H"] = 1 - (df["obesity_norm"]    * 0.30 +
+                         df["disab_norm"]       * 0.30 +
+                         df["nursing_norm"]     * 0.20 +
+                         df["inactivity_norm"]  * 0.20)
 
     out = os.path.join(OUT, "nc_county_health_scores.csv")
     df.to_csv(out, index=False)
@@ -229,10 +251,38 @@ def build_health(pop_df):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  3. EDUCATION SCORES  (ACS S1501)
+#  ZCTA → county crosswalk helper  (used by build_education for ham radio)
+# ══════════════════════════════════════════════════════════════════════════════
+def fetch_zcta_crosswalk():
+    """Return a DataFrame mapping ZCTA5 → county_fips for NC counties."""
+    xwalk_path = os.path.join(_HERE, "raw", "zcta_to_county.csv")
+    if os.path.exists(xwalk_path):
+        return pd.read_csv(xwalk_path, dtype=str)
+    print("  Fetching ZCTA→county crosswalk from Census Bureau...")
+    url = ("https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+           "tab20_zcta520_county20_natl.txt")
+    try:
+        from io import StringIO
+        r = requests.get(url, timeout=120)
+        r.raise_for_status()
+        xwalk = pd.read_csv(StringIO(r.text), sep="|", dtype=str)
+        nc_xwalk = xwalk[xwalk["GEOID_COUNTY_20"].str.startswith("37")][
+            ["GEOID_ZCTA5_20", "GEOID_COUNTY_20"]
+        ].drop_duplicates().copy()
+        nc_xwalk.columns = ["zcta5", "county_fips"]
+        nc_xwalk.to_csv(xwalk_path, index=False)
+        print(f"  Saved {len(nc_xwalk)} NC ZCTA mappings → {xwalk_path}")
+        return nc_xwalk
+    except Exception as e:
+        print(f"  ZCTA crosswalk fetch failed: {e} — ham radio county mapping unavailable")
+        return pd.DataFrame(columns=["zcta5", "county_fips"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  3. EDUCATION SCORES  (ACS S1501 + ham radio density + agriculture)
 # ══════════════════════════════════════════════════════════════════════════════
 def build_education(pop_df):
-    print("\n[3/7] Education scores — ACS S1501...")
+    print("\n[3/7] Education scores — ACS S1501 + ham radio + agriculture...")
 
     edu_df = census_get(
         "2022/acs/acs5",
@@ -253,15 +303,64 @@ def build_education(pop_df):
             for f in NC_COUNTIES
         ])
 
-    df = pop_df[["county_fips", "county"]].merge(edu_df, on="county_fips", how="left")
+    # Ham radio license density (FCC ULS) — emergency comms proxy
+    ham_path = os.path.join(_HERE, "raw", "fcc_ham", "nc_ham_licenses_active.csv")
+    if os.path.exists(ham_path):
+        xwalk = fetch_zcta_crosswalk()
+        ham_raw = pd.read_csv(ham_path, dtype={"zip_code": str})
+        ham_raw["zcta5"] = ham_raw["zip_code"].str[:5].str.zfill(5)
+        if not xwalk.empty:
+            ham_raw = ham_raw.merge(xwalk, on="zcta5", how="left")
+            ham_county = (ham_raw.dropna(subset=["county_fips"])
+                          .groupby("county_fips").size()
+                          .reset_index(name="ham_count"))
+            print(f"  Ham radio: {len(ham_raw)} licenses → {len(ham_county)} counties mapped")
+        else:
+            ham_county = pd.DataFrame(columns=["county_fips", "ham_count"])
+    else:
+        ham_county = pd.DataFrame(columns=["county_fips", "ham_count"])
+        print("  Ham radio data not found — skipped")
+
+    # Agricultural occupation (ACS C24010) — food self-sufficiency proxy
+    ag_path = os.path.join(_HERE, "raw", "acs_agriculture_occupation.csv")
+    if os.path.exists(ag_path):
+        ag_df = pd.read_csv(ag_path, dtype={"county_fips": str})
+        ag_df["county_fips"] = ag_df["county_fips"].astype(str).str.zfill(5)
+        ag_df = ag_df[["county_fips", "ag_pct"]]
+        print(f"  Agriculture: {len(ag_df)} counties loaded  (mean ag_pct={ag_df['ag_pct'].mean():.3f})")
+    else:
+        ag_df = pd.DataFrame(columns=["county_fips", "ag_pct"])
+        print("  Agriculture data not found — skipped")
+
+    df = (pop_df[["county_fips", "county", "population"]]
+          .merge(edu_df,     on="county_fips", how="left")
+          .merge(ham_county, on="county_fips", how="left")
+          .merge(ag_df,      on="county_fips", how="left"))
+
     df["pct_bachelors"] = df["pct_bachelors"].fillna(df["pct_bachelors"].median())
     df["pct_hs"]        = df["pct_hs"].fillna(df["pct_hs"].median())
 
-    df["education_score_normalized"] = normalize(df["pct_bachelors"])
+    # Ham density per 10k population
+    df["ham_count"]   = df["ham_count"].fillna(0)
+    df["ham_density"] = df["ham_count"] / (df["population"].clip(lower=1) / 10000)
+
+    # Agriculture fraction — fallback to statewide median
+    _ag_median = df["ag_pct"].median()
+    if np.isnan(_ag_median):
+        _ag_median = 0.10
+    df["ag_pct"] = df["ag_pct"].fillna(_ag_median)
+
+    df["education_score_normalized"]  = normalize(df["pct_bachelors"])
     df["resilience_score_normalized"] = normalize(df["pct_hs"])
+    df["ham_norm"] = normalize(df["ham_density"])
+    df["ag_norm"]  = normalize(df["ag_pct"])
+
+    # Weights: bachelors 0.45, HS grad 0.30, ham radio 0.15, agriculture 0.10
     df["edu_awareness_score"] = (
-        df["education_score_normalized"] * 0.6 +
-        df["resilience_score_normalized"] * 0.4
+        df["education_score_normalized"]  * 0.45 +
+        df["resilience_score_normalized"] * 0.30 +
+        df["ham_norm"]                    * 0.15 +
+        df["ag_norm"]                     * 0.10
     )
 
     out = os.path.join(OUT, "nc_education_awareness_scores.csv")

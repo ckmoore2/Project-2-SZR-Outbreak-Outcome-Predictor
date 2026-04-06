@@ -199,24 +199,24 @@ def containment_color(p):
         return "#cc2200", "COLLAPSE"
 
 
-# ── County presets (NC census + HSI estimates) ────────────────────────────────
+# ── County presets (NC census + real HSI from integrate_real_hsi.py) ──────────
 COUNTY_PRESETS = {
     "— Select a county —": None,
-    "Wake (Raleigh)":             {"initial_population": 1132103, "initial_infected": 5, "mobility_score": 1.000, "infrastructure_score": 0.222, "health_score": 0.041},
-    "Mecklenburg (Charlotte)":    {"initial_population": 1115403, "initial_infected": 5, "mobility_score": 0.921, "infrastructure_score": 0.218, "health_score": 0.270},
-    "Guilford (Greensboro)":      {"initial_population": 539557,  "initial_infected": 5, "mobility_score": 0.835, "infrastructure_score": 0.260, "health_score": 0.456},
-    "Durham":                     {"initial_population": 325101,  "initial_infected": 5, "mobility_score": 0.768, "infrastructure_score": 0.103, "health_score": 0.499},
-    "Forsyth (Winston-Salem)":    {"initial_population": 383739,  "initial_infected": 5, "mobility_score": 0.796, "infrastructure_score": 0.214, "health_score": 0.009},
-    "Cumberland (Fayetteville)":  {"initial_population": 335207,  "initial_infected": 5, "mobility_score": 0.774, "infrastructure_score": 0.242, "health_score": 0.005},
-    "Buncombe (Asheville)":       {"initial_population": 269449,  "initial_infected": 5, "mobility_score": 0.830, "infrastructure_score": 0.134, "health_score": 0.631},
-    "Pitt (Greenville/ECU)":      {"initial_population": 171196,  "initial_infected": 5, "mobility_score": 0.620, "infrastructure_score": 0.252, "health_score": 0.207},
-    "New Hanover (Wilmington)":   {"initial_population": 228134,  "initial_infected": 5, "mobility_score": 0.775, "infrastructure_score": 0.170, "health_score": 0.513},
-    "Alamance (Burlington)":      {"initial_population": 171779,  "initial_infected": 5, "mobility_score": 0.819, "infrastructure_score": 0.171, "health_score": 0.472},
-    "Onslow (Jacksonville)":      {"initial_population": 203686,  "initial_infected": 5, "mobility_score": 0.884, "infrastructure_score": 0.316, "health_score": 0.475},
-    "Union (Monroe)":             {"initial_population": 240109,  "initial_infected": 5, "mobility_score": 0.948, "infrastructure_score": 0.447, "health_score": 0.373},
-    "Wayne (Goldsboro)":          {"initial_population": 117480,  "initial_infected": 5, "mobility_score": 0.693, "infrastructure_score": 0.304, "health_score": 0.350},
-    "Cabarrus (Concord)":         {"initial_population": 226396,  "initial_infected": 5, "mobility_score": 0.897, "infrastructure_score": 0.161, "health_score": 0.083},
-    "Orange (Chapel Hill)":       {"initial_population": 145919,  "initial_infected": 5, "mobility_score": 0.820, "infrastructure_score": 0.396, "health_score": 0.280},
+    "Wake (Raleigh)":             {"initial_population": 1132103, "initial_infected": 5, "mobility_score": 1.000, "infrastructure_score": 0.222, "health_score": 0.423},
+    "Mecklenburg (Charlotte)":    {"initial_population": 1115403, "initial_infected": 5, "mobility_score": 0.921, "infrastructure_score": 0.218, "health_score": 0.574},
+    "Guilford (Greensboro)":      {"initial_population": 539557,  "initial_infected": 5, "mobility_score": 0.835, "infrastructure_score": 0.260, "health_score": 0.675},
+    "Durham":                     {"initial_population": 325101,  "initial_infected": 5, "mobility_score": 0.768, "infrastructure_score": 0.103, "health_score": 0.695},
+    "Forsyth (Winston-Salem)":    {"initial_population": 383739,  "initial_infected": 5, "mobility_score": 0.796, "infrastructure_score": 0.214, "health_score": 0.194},
+    "Cumberland (Fayetteville)":  {"initial_population": 335207,  "initial_infected": 5, "mobility_score": 0.774, "infrastructure_score": 0.242, "health_score": 0.154},
+    "Buncombe (Asheville)":       {"initial_population": 269449,  "initial_infected": 5, "mobility_score": 0.830, "infrastructure_score": 0.134, "health_score": 0.843},
+    "Pitt (Greenville/ECU)":      {"initial_population": 171196,  "initial_infected": 5, "mobility_score": 0.620, "infrastructure_score": 0.252, "health_score": 0.333},
+    "New Hanover (Wilmington)":   {"initial_population": 228134,  "initial_infected": 5, "mobility_score": 0.775, "infrastructure_score": 0.170, "health_score": 0.721},
+    "Alamance (Burlington)":      {"initial_population": 171779,  "initial_infected": 5, "mobility_score": 0.819, "infrastructure_score": 0.171, "health_score": 0.611},
+    "Onslow (Jacksonville)":      {"initial_population": 203686,  "initial_infected": 5, "mobility_score": 0.884, "infrastructure_score": 0.316, "health_score": 0.656},
+    "Union (Monroe)":             {"initial_population": 240109,  "initial_infected": 5, "mobility_score": 0.948, "infrastructure_score": 0.447, "health_score": 0.578},
+    "Wayne (Goldsboro)":          {"initial_population": 117480,  "initial_infected": 5, "mobility_score": 0.693, "infrastructure_score": 0.304, "health_score": 0.390},
+    "Cabarrus (Concord)":         {"initial_population": 226396,  "initial_infected": 5, "mobility_score": 0.897, "infrastructure_score": 0.161, "health_score": 0.288},
+    "Orange (Chapel Hill)":       {"initial_population": 145919,  "initial_infected": 5, "mobility_score": 0.820, "infrastructure_score": 0.396, "health_score": 0.514},
 }
 
 # ── Outbreak scenario presets ─────────────────────────────────────────────────

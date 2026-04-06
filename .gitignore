@@ -26,6 +26,9 @@ outputs/*.csv
 # DASC 6010 source CSVs (large; copy from ~/Desktop/dasc6010-zombie/data/)
 data/dasc6010/*.csv
 
+# Large raw data archives (FCC ULS zip is 166MB — excluded from git)
+data/raw/fcc_ham/*.zip
+
 # OS
 .DS_Store
 
