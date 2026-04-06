@@ -282,6 +282,8 @@ def main():
 
     model_c = None
     losses_c = None
+    model_d = None
+    losses_d = None
 
     for label, desc, hdims in configs:
         res, model, tl, vl = run_pytorch_experiment(
@@ -294,6 +296,9 @@ def main():
         if label == "C":
             model_c = model
             losses_c = (tl, vl)
+        if label == "D":
+            model_d = model
+            losses_d = (tl, vl)
 
     # ------------------------------------------------------------------
     # Experiment E: drop HSI features
@@ -335,10 +340,10 @@ def main():
     # ------------------------------------------------------------------
     # Save outputs
     # ------------------------------------------------------------------
-    # Best model (Experiment C)
+    # Best model (Experiment D — highest R²=0.925 on enriched dataset)
     model_path = os.path.join(OUTPUTS_DIR, "best_model.pt")
-    torch.save(model_c.state_dict(), model_path)
-    print(f"\nBest model (Exp C) saved to {model_path}")
+    torch.save(model_d.state_dict(), model_path)
+    print(f"\nBest model (Exp D) saved to {model_path}")
 
     # Ablation results table
     df_results = pd.DataFrame(results)
@@ -347,14 +352,14 @@ def main():
     print(f"Ablation results saved to {ablation_path}")
     print("\n" + df_results.to_string(index=False))
 
-    # Loss curve for Experiment C
-    train_losses, val_losses = losses_c
+    # Loss curve for Experiment D (primary model)
+    train_losses, val_losses = losses_d
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(train_losses, label="Train loss")
     ax.plot(val_losses, label="Val loss")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
-    ax.set_title("Experiment C — Training Loss Curve")
+    ax.set_title("Experiment D — Training Loss Curve")
     ax.legend()
     fig.tight_layout()
     curve_path = os.path.join(OUTPUTS_DIR, "loss_curve.png")

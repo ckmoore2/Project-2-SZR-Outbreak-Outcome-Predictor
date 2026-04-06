@@ -25,8 +25,8 @@
 - Mac Apple Silicon: always use `--platform linux/amd64` for Docker builds targeting Cloud Run
   (`bash deploy.sh` handles this automatically; use `bash deploy.sh --local` for native builds)
 
-## Model Architecture (Experiment C — PRIMARY)
-- `SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)`
+## Model Architecture (Experiment D — PRIMARY)
+- `SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)`
 - `pos_weight=5.5` for `BCEWithLogitsLoss` on the containment target
 - `StandardScaler` fitted on training features only, saved to `outputs/scaler.pkl`
 - Output indices: `[0]` = peak_zombie_fraction, `[1]` = time_to_peak, `[2]` = containment logit
@@ -34,8 +34,8 @@
 ## Ablation Experiments
 - A: Linear/Logistic baseline (scikit-learn)
 - B: MLP `hidden_dims=[32]`
-- C: MLP `hidden_dims=[64, 128]` — PRIMARY MODEL
-- D: MLP `hidden_dims=[128, 256, 128]`
+- C: MLP `hidden_dims=[64, 128]`
+- D: MLP `hidden_dims=[128, 256, 128]` — PRIMARY MODEL (R²=0.927, MAE=1.287)
 - E: MLP `[64, 128]` WITHOUT HSI features — tests HSI importance
 - F: MLP `[64, 128]` WITH ONLY HSI features — tests HSI alone
 
