@@ -28,6 +28,8 @@ data/dasc6010/*.csv
 
 # Large raw data archives (FCC ULS zip is 166MB — excluded from git)
 data/raw/fcc_ham/*.zip
+# Original download filenames (canonical copies renamed on import)
+data/raw/usfa-registry-NC.csv
 
 # OS
 .DS_Store
