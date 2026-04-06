@@ -1,6 +1,13 @@
 # Manual Fetch Instructions
 ## Factors requiring manual download (auto-fetch failed)
 
+| Factor | Status | File |
+|---|---|---|
+| VFD Coverage | ✅ **INTEGRATED** | `data/raw/nc_vfd_coverage.csv` (1,089 depts, 956 volunteer/combo) |
+| Congregation Density | ⏳ Pending | See Section 2 below |
+
+---
+
 ---
 
 ### 1. VFD Coverage (Category C — Social Cohesion / Volunteer Fire Dept)

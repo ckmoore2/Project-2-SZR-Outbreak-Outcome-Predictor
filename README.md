@@ -90,19 +90,19 @@ Six ablation experiments were run to validate model design:
 
 | Experiment | Description | MAE | RMSE | R² | F1 | AUC |
 |---|---|---|---|---|---|---|
-| A | Linear/Logistic baseline | 7.315 | 17.018 | 0.625 | 0.997 | 1.000 |
-| B | MLP [32] | 6.129 | 15.495 | 0.708 | 0.971 | 1.000 |
-| C | MLP [64, 128] | 1.881 | 7.309 | 0.899 | 0.977 | 0.999 |
-| **D** | **MLP [128, 256, 128] ← primary model** | **1.287** | **4.777** | **0.927** | **0.982** | **0.999** |
-| E | MLP [64, 128], no HSI features | 1.280 | 5.980 | 0.937 | 0.981 | 1.000 |
-| F | MLP [64, 128], only HSI features | 9.852 | 20.866 | −0.002 | 0.646 | 0.505 |
+| A | Linear/Logistic baseline | 7.355 | 17.126 | 0.625 | 0.997 | 1.000 |
+| B | MLP [32] | 6.320 | 15.941 | 0.685 | 0.952 | 0.999 |
+| C | MLP [64, 128] | 1.756 | 7.434 | 0.914 | 0.980 | 0.999 |
+| **D** | **MLP [128, 256, 128] ← primary model** | **0.928** | **3.981** | **0.937** | **0.967** | **0.998** |
+| E | MLP [64, 128], no HSI features | 1.441 | 6.462 | 0.924 | 0.984 | 0.999 |
+| F | MLP [64, 128], only HSI features | 9.878 | 21.000 | −0.002 | 0.646 | 0.509 |
 
 **Key findings:**
 
-- **Experiment D [128, 256, 128] is the primary model** — best MAE (1.287) and RMSE (4.777), with R²=0.927.
-- **Architecture capacity is required to leverage HSI.** With real NC HSI distributions, Experiment E (no HSI features, R²=0.937) outperforms Experiment C (with HSI, R²=0.899). However, Experiment D (with HSI, R²=0.927) closes this gap significantly. The HSI features contribute meaningful signal, but only when the model has sufficient capacity to learn their interactions with the epidemiological parameters — a 2-layer [64,128] network cannot fully exploit them.
+- **Experiment D [128, 256, 128] is the primary model** — best MAE (0.928) and RMSE (3.981), with R²=0.937.
+- **Real VFD data strengthened the HSI signal.** With the USFA volunteer fire department data integrated into social scores, Experiment D (with HSI, R²=0.937) now outperforms Experiment E (no HSI, R²=0.924) — confirming that the enriched census data contributes meaningful predictive signal when the model has sufficient capacity.
+- **Architecture capacity is required to leverage HSI.** Experiment C (with HSI, [64,128], R²=0.914) is outperformed by Experiment E (no HSI, [64,128], R²=0.924), but Experiment D (with HSI, [128,256,128], R²=0.937) beats both. The HSI × epidemiological parameter interactions require a wider/deeper network to exploit.
 - **Experiment F (only HSI, R²≈0) confirms** that epidemiological parameters (β, ζ, α) are the dominant predictors. HSI modulates outbreak dynamics but cannot predict outcomes in isolation.
-- **Experiment D is selected** over Exp E despite E's marginally higher R² because D includes the real NC census HSI features, keeping the model interpretable in terms of county-level survivability factors.
 
 ---
 

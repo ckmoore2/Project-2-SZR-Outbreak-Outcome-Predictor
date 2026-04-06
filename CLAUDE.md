@@ -35,7 +35,7 @@
 - A: Linear/Logistic baseline (scikit-learn)
 - B: MLP `hidden_dims=[32]`
 - C: MLP `hidden_dims=[64, 128]`
-- D: MLP `hidden_dims=[128, 256, 128]` — PRIMARY MODEL (R²=0.927, MAE=1.287)
+- D: MLP `hidden_dims=[128, 256, 128]` — PRIMARY MODEL (R²=0.937, MAE=0.928)
 - E: MLP `[64, 128]` WITHOUT HSI features — tests HSI importance
 - F: MLP `[64, 128]` WITH ONLY HSI features — tests HSI alone
 

@@ -520,10 +520,10 @@ def build_infrastructure(pop_df, mobility_df):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  7. SOCIAL & COMMUNITY  (ACS veteran + ACS gun proxy)
+#  7. SOCIAL & COMMUNITY  (ACS veteran + ACS gun proxy + VFD coverage)
 # ══════════════════════════════════════════════════════════════════════════════
 def build_social(pop_df):
-    print("\n[7/7] Social scores — ACS B21001 veterans + proxy...")
+    print("\n[7/7] Social scores — ACS B21001 veterans + VFD coverage + proxy...")
 
     vet_df = census_get(
         "2022/acs/acs5",
@@ -549,9 +549,35 @@ def build_social(pop_df):
     # Military county boost (Fort Liberty/Bragg = Cumberland, Camp Lejeune = Onslow)
     military_fips = {"37051": 0.35, "37133": 0.30, "37191": 0.18, "37067": 0.15}
 
-    df = pop_df[["county_fips", "county", "population"]].merge(vet_df, on="county_fips", how="left")
+    # VFD coverage (USFA Fire Department Census — real NC data)
+    vfd_path = os.path.join(_HERE, "raw", "nc_vfd_coverage.csv")
+    if os.path.exists(vfd_path):
+        vfd_raw = pd.read_csv(vfd_path)
+        vfd_raw.columns = vfd_raw.columns.str.strip()
+        # County name → county_fips via NC_COUNTIES (reverse map)
+        name_to_fips = {v: f"37{k}" for k, v in NC_COUNTIES.items()}
+        vfd_raw["county_name"] = vfd_raw["County"].str.strip()
+        vfd_raw["county_fips"] = vfd_raw["county_name"].map(name_to_fips)
+        # Volunteer + Mostly volunteer departments = distributed emergency capacity
+        vol_mask = vfd_raw["Dept Type"].str.strip().isin(["Volunteer", "Mostly volunteer"])
+        vfd_county = (vfd_raw[vol_mask]
+                      .groupby("county_fips").size()
+                      .reset_index(name="vfd_count"))
+        print(f"  VFD: {vol_mask.sum()} volunteer/combo depts across "
+              f"{vfd_county['county_fips'].nunique()} counties")
+    else:
+        vfd_county = pd.DataFrame(columns=["county_fips", "vfd_count"])
+        print("  VFD data not found — skipped (run data/fetch/MANUAL_FETCH_INSTRUCTIONS.md §1)")
+
+    df = (pop_df[["county_fips", "county", "population"]]
+          .merge(vet_df,    on="county_fips", how="left")
+          .merge(vfd_county, on="county_fips", how="left"))
     df["vet_pct"]   = df["vet_pct"].fillna(0.07)
     df["vet_count"] = df["vet_count"].fillna(0)
+    df["vfd_count"] = df["vfd_count"].fillna(0)
+
+    # VFD density per 10k population — rural counties typically have more
+    df["vfd_density"] = df["vfd_count"] / (df["population"].clip(lower=1) / 10000)
 
     # Gun ownership proxy: rural + military counties higher
     _permit_fallback = pd.Series(
@@ -561,19 +587,22 @@ def build_social(pop_df):
     df["harvest_yield"] = normalize(df["population"].apply(np.log1p)) * 0.5 + \
                           np.random.uniform(0.1, 0.5, len(df))
 
-    df["vet_norm"]    = normalize(df["vet_pct"])
-    df["permit_norm"] = normalize(df["permit_density"])
+    df["vet_norm"]     = normalize(df["vet_pct"])
+    df["permit_norm"]  = normalize(df["permit_density"])
     df["harvest_norm"] = normalize(df["harvest_yield"])
+    df["vfd_norm"]     = normalize(df["vfd_density"])
 
     # Boost military counties
     df["military_boost"] = df["county_fips"].map(
         {k: v for k, v in military_fips.items()}
     ).fillna(0.0)
 
+    # Weights: veteran 0.30, permit 0.30, vfd 0.15, harvest 0.10, military 0.15
     df["final_score"] = (
-        df["vet_norm"]    * 0.35 +
-        df["permit_norm"] * 0.35 +
-        df["harvest_norm"] * 0.15 +
+        df["vet_norm"]      * 0.30 +
+        df["permit_norm"]   * 0.30 +
+        df["vfd_norm"]      * 0.15 +
+        df["harvest_norm"]  * 0.10 +
         df["military_boost"] * 0.15
     ).clip(0, 1)
 

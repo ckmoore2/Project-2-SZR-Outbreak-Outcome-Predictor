@@ -218,6 +218,8 @@ COUNTY_PRESETS = {
     "Cabarrus (Concord)":         {"initial_population": 226396,  "initial_infected": 5, "mobility_score": 0.897, "infrastructure_score": 0.161, "health_score": 0.288},
     "Orange (Chapel Hill)":       {"initial_population": 145919,  "initial_infected": 5, "mobility_score": 0.820, "infrastructure_score": 0.396, "health_score": 0.514},
 }
+# NOTE: social_score is not used directly as a slider input — it feeds into HSI
+# via integrate_real_hsi.py. The values above reflect the current pipeline run.
 
 # ── Outbreak scenario presets ─────────────────────────────────────────────────
 # SHOW_PRESETS: built from model/config.py SCENARIOS — single source of truth.
