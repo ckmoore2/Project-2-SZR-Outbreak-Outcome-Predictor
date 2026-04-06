@@ -2,12 +2,13 @@ numpy
 pandas
 scipy
 scikit-learn
-torch
+torch>=2.0.0
 matplotlib
 seaborn
-streamlit
+streamlit>=1.30.0
 joblib
 shap
 imbalanced-learn
 jupyter
 openpyxl
+requests

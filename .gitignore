@@ -15,6 +15,9 @@ venv/
 
 # Generated data and model artifacts (run scripts to regenerate)
 data/szr_synthetic.csv
+data/processed/merged_county_df.csv
+data/processed/nc_county_hsi_real.csv
+data/processed/hsi_distributions.json
 outputs/*.pkl
 outputs/*.pt
 outputs/*.png

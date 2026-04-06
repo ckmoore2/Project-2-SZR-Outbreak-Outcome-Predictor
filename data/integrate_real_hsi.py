@@ -28,7 +28,10 @@ If that file is not present, run the team's main notebook first
     df.to_csv("data/processed/merged_county_df.csv", index=False)
 """
 
+from __future__ import annotations
+
 import os
+import sys
 import json
 import numpy as np
 import pandas as pd
@@ -36,6 +39,8 @@ from scipy.integrate import solve_ivp
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _ROOT)
+from model.config import HSI_WEIGHTS_NAMED as HSI_WEIGHTS  # single source of truth
 PROCESSED_DIR = os.path.join(_ROOT, "data", "processed")
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
@@ -54,16 +59,6 @@ SCORE_MAP = {
     "education_score":    "edu_awareness_score",
     "social_score":       "final_score",          # prepper/vet/permit composite
     "geo_score":          "mean_survivability",    # NOAA interpolated
-}
-
-# HSI weights (must match config.py)
-HSI_WEIGHTS = {
-    "health_score":         0.15,
-    "mobility_score":       0.15,
-    "infrastructure_score": 0.20,
-    "education_score":      0.10,
-    "social_score":         0.25,
-    "geo_score":            0.15,
 }
 
 # SZR scenario base parameters (28 Days Later — matches generate_data.py default)
@@ -120,7 +115,7 @@ def derive_parameters(hsi, beta0=BETA0, kappa0=KAPPA0, a=0.3, b=0.5):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def build_county_hsi_table(merged_path=MERGED_CSV):
+def build_county_hsi_table(merged_path: str = MERGED_CSV) -> pd.DataFrame:
     """
     Load the merged DataFrame, extract HSI sub-scores,
     run per-county simulations, and return a clean result DataFrame.
@@ -200,7 +195,7 @@ def build_county_hsi_table(merged_path=MERGED_CSV):
     return result_df
 
 
-def build_hsi_distributions(result_df):
+def build_hsi_distributions(result_df: pd.DataFrame) -> dict:
     """
     Compute per-score statistics used to anchor the synthetic data generator.
     Returns a dict ready to be written to hsi_distributions.json.
@@ -257,7 +252,7 @@ def generate_county_presets(result_df, top_n=15):
     print("}")
 
 
-def main():
+def main() -> None:
     print("=" * 60)
     print("NC HSI Integration — Real County Data")
     print("=" * 60)

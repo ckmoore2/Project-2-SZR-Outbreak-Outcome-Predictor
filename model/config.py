@@ -72,6 +72,18 @@ HSI_WEIGHTS_V2 = {
 # Active weight set (swap to V2 once new E sub-factors are scored)
 HSI_WEIGHTS = HSI_WEIGHTS_V1
 
+# Named version — maps full score column names to weights.
+# Used by data/generate_data.py and data/integrate_real_hsi.py so the
+# weights are defined once here and not duplicated in every data script.
+HSI_WEIGHTS_NAMED = {
+    "health_score":         HSI_WEIGHTS_V1["H"],
+    "mobility_score":       HSI_WEIGHTS_V1["M"],
+    "infrastructure_score": HSI_WEIGHTS_V1["I"],
+    "education_score":      HSI_WEIGHTS_V1["E"],
+    "social_score":         HSI_WEIGHTS_V1["C"],
+    "geo_score":            HSI_WEIGHTS_V1["G"],
+}
+
 # ── κ modifier: sigmoid vs linear ────────────────────────────────────────────
 #
 # V1 (linear):  κ_eff = κ_base × (1 + 0.5 × HSI)

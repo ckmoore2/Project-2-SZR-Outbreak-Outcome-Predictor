@@ -2,21 +2,31 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import joblib
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from scipy.integrate import odeint
+from scipy.special import expit as _expit
 import shap
 import os
+import sys
+
+# ── Project root on path so model/ is importable regardless of CWD ───────────
+_APP_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_APP_DIR)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from model.szr_predictor import SZRPredictor, FEATURE_COLUMNS
+from model.szr_model import run_simulation_v1 as run_simulation
+from model.config import SCENARIOS as _SCENARIOS
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="OUTBREAK RESPONSE TERMINAL",
     page_icon="☣",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ── Terminal CSS ──────────────────────────────────────────────────────────────
@@ -116,33 +126,16 @@ body::after {
 </style>
 """, unsafe_allow_html=True)
 
-# ── Model definition (must match train.py) ────────────────────────────────────
-class SZRPredictor(nn.Module):
-    def __init__(self, input_dim=8, hidden_dims=None, output_dim=3, dropout=0.2):
-        super().__init__()
-        if hidden_dims is None:
-            hidden_dims = [64, 128]
-        layers = []
-        prev = input_dim
-        for h in hidden_dims:
-            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
-            prev = h
-        layers.append(nn.Linear(prev, output_dim))
-        self.network = nn.Sequential(*layers)   # must match train.py attribute name
-
-    def forward(self, x):
-        return self.network(x)
-
-
 # ── Load model + scaler ───────────────────────────────────────────────────────
-MODEL_PATH  = os.path.join(os.path.dirname(__file__), "..", "outputs", "best_model.pt")
-SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.pkl")
+# SZRPredictor is imported from model/szr_predictor.py — single definition, no drift.
+MODEL_PATH  = os.path.join(_PROJECT_ROOT, "outputs", "best_model.pt")
+SCALER_PATH = os.path.join(_PROJECT_ROOT, "outputs", "scaler.pkl")
 
 @st.cache_resource
 def load_model():
     model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
-        state = torch.load(MODEL_PATH, map_location="cpu")
+        state = torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
         model.load_state_dict(state)
     except RuntimeError as e:
         err = str(e)
@@ -160,26 +153,6 @@ def load_model():
 @st.cache_resource
 def load_scaler():
     return joblib.load(SCALER_PATH)
-
-
-# ── SZR ODE ───────────────────────────────────────────────────────────────────
-def szr_ode(y, t, beta, zeta, alpha):
-    S, Z, R = y
-    N = S + Z + R
-    if N <= 0:
-        return [0, 0, 0]
-    dS = -beta * S * Z / N
-    dZ =  beta * S * Z / N - zeta * Z - alpha * Z
-    dR =  zeta * Z + alpha * Z
-    return [dS, dZ, dR]
-
-def run_simulation(beta, zeta, alpha, population, initial_infected, days=180):
-    S0 = population - initial_infected
-    Z0 = initial_infected
-    R0 = 0.0
-    t  = np.linspace(0, days, days * 4)
-    sol = odeint(szr_ode, [S0, Z0, R0], t, args=(beta, zeta, alpha))
-    return t, sol
 
 
 # ── Matplotlib terminal style ─────────────────────────────────────────────────
@@ -213,7 +186,7 @@ FEATURE_META = {
     "infrastructure_score":{"label":"Infrastructure Score (I)",     "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-I: power, water, food self-sufficiency"},
     "health_score":       {"label": "Health & Fitness Score (H)",   "min": 0.0,  "max": 1.0,  "default": 0.50, "step": 0.01, "help": "HSI-H: physical capability, medical access"},
 }
-FEATURE_ORDER = list(FEATURE_META.keys())
+FEATURE_ORDER = FEATURE_COLUMNS  # guaranteed to match model/szr_predictor.py
 
 
 # ── Containment colour helper ─────────────────────────────────────────────────
@@ -242,63 +215,58 @@ COUNTY_PRESETS = {
 }
 
 # ── Outbreak scenario presets ─────────────────────────────────────────────────
-# Two groups: zombie show canon (from config SCENARIOS) + operational severity levels
-SCENARIO_PRESETS = {
-    # ── Zombie show canon ─────────────────────────────────────────────────────
-    "— Select a scenario —":           None,
-    "🧟 The Walking Dead":             {
-        "beta": 2.80e-3, "zeta": 2.52e-3, "alpha": 0.90, "initial_infected": 10,
-        "label": "β=0.0028 · α=0.90 · Slow walkers, high removal — humans likely survive",
-        "group": "show",
-    },
-    "🍄 The Last of Us":               {
-        "beta": 6.00e-3, "zeta": 3.90e-3, "alpha": 0.65, "initial_infected": 20,
-        "label": "β=0.0060 · α=0.65 · Fungal spread, organised clickers — marginal survival",
-        "group": "show",
-    },
-    "🌍 World War Z":                  {
-        "beta": 3.60e-3, "zeta": 2.88e-3, "alpha": 0.80, "initial_infected": 50,
-        "label": "β=0.0036 · α=0.80 · Fast movers, global scale — NC likely holds",
-        "group": "show",
-    },
-    "⚡ 28 Days Later":                {
-        "beta": 9.00e-3, "zeta": 4.50e-3, "alpha": 0.50, "initial_infected": 5,
-        "label": "β=0.0090 · α=0.50 · Rage virus, extreme spread — zombies win in NC",
-        "group": "show",
-    },
-    "🦠 Rabies (real baseline)":       {
-        "beta": 0.50e-3, "zeta": 4.75e-4, "alpha": 0.95, "initial_infected": 2,
-        "label": "β=0.0005 · α=0.95 · Real-world ceiling — humans dominate easily",
-        "group": "show",
-    },
-    # ── Operational severity levels ───────────────────────────────────────────
-    "── Severity Presets ──":          None,
-    "🟢 Early Detection":              {
+# SHOW_PRESETS: built from model/config.py SCENARIOS — single source of truth.
+# Epidemiological params (beta, kappa, alpha) come from config; only emoji,
+# initial_infected, and description are defined here.
+_SHOW_MAP = [
+    ("🧟", "twd",    10, "Slow walkers, high removal — humans likely survive"),
+    ("🍄", "tlou",   20, "Fungal spread, organised clickers — marginal survival"),
+    ("🌍", "wwz",    50, "Fast movers, global scale — NC likely holds"),
+    ("⚡", "28days",  5, "Rage virus, extreme spread — zombies win in NC"),
+    ("🦠", "rabies",  2, "Real-world ceiling — humans dominate easily"),
+]
+SHOW_PRESETS = {"— Select a show scenario —": None}
+SHOW_PRESETS.update({
+    f"{emoji} {_SCENARIOS[key]['label']}": {
+        "beta":             _SCENARIOS[key]["beta"],
+        "zeta":             _SCENARIOS[key]["kappa"],
+        "alpha":            _SCENARIOS[key]["alpha"],
+        "initial_infected": z0,
+        "label":            f"β={_SCENARIOS[key]['beta']:.4f} · α={_SCENARIOS[key]['alpha']:.2f} · {desc}",
+        "group":            "show",
+    }
+    for emoji, key, z0, desc in _SHOW_MAP
+})
+
+# SEVERITY_PRESETS: operational outbreak levels (not show-specific)
+SEVERITY_PRESETS = {
+    "— Select a severity level —": None,
+    "🟢 Early Detection": {
         "beta": 0.15, "zeta": 0.18, "alpha": 0.01, "initial_infected": 3,
         "label": "Low β · High ζ · Caught before community spread",
         "group": "severity",
     },
-    "🟡 Active Spread":                {
+    "🟡 Active Spread": {
         "beta": 0.30, "zeta": 0.10, "alpha": 0.01, "initial_infected": 25,
         "label": "Moderate β · Standard removal rate",
         "group": "severity",
     },
-    "🔴 Rapid Outbreak":               {
+    "🔴 Rapid Outbreak": {
         "beta": 0.55, "zeta": 0.08, "alpha": 0.01, "initial_infected": 100,
         "label": "High β · Overwhelmed response infrastructure",
         "group": "severity",
     },
-    "☠  Total Collapse":               {
+    "☠  Total Collapse": {
         "beta": 0.80, "zeta": 0.04, "alpha": 0.01, "initial_infected": 500,
         "label": "Runaway infection · No effective containment",
         "group": "severity",
     },
-    "🪖 Military Response":            {
+    "🪖 Military Response": {
         "beta": 0.25, "zeta": 0.35, "alpha": 0.01, "initial_infected": 20,
         "label": "High removal · Fort Liberty / Camp Lejeune scenario",
         "group": "severity",
     },
-    "🏥 Medical Containment":          {
+    "🏥 Medical Containment": {
         "beta": 0.20, "zeta": 0.22, "alpha": 0.01, "initial_infected": 10,
         "label": "Active quarantine + treatment protocols",
         "group": "severity",
@@ -326,15 +294,6 @@ if st.session_state["_toast_msg"]:
     st.toast(st.session_state["_toast_msg"], icon=st.session_state["_toast_icon"])
     st.session_state["_toast_msg"] = None
     st.session_state["_toast_icon"] = "✅"
-
-# ── Split show vs severity preset dicts ──────────────────────────────────────
-SHOW_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
-                if v is not None and v.get("group") == "show"}
-SHOW_PRESETS = {"— Select a show scenario —": None, **SHOW_PRESETS}
-
-SEVERITY_PRESETS = {k: v for k, v in SCENARIO_PRESETS.items()
-                    if v is not None and v.get("group") == "severity"}
-SEVERITY_PRESETS = {"— Select a severity level —": None, **SEVERITY_PRESETS}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -518,9 +477,7 @@ st.markdown("<div style='border-top:1px solid rgba(204,34,0,.3); margin:16px 0 1
             unsafe_allow_html=True)
 
 
-# ── Sigmoid modifier helpers (inline) ────────────────────────────────────────
-from scipy.special import expit as _expit
-
+# ── Sigmoid modifier helpers ──────────────────────────────────────────────────
 def _sigmoid_kappa_modifier(hsi, scale=1.5, steepness=6.0):
     hsi = float(np.clip(hsi, 0.0, 1.0))
     return 1.0 + scale * (_expit(steepness * (hsi - 0.5)) - 0.5)
@@ -870,7 +827,7 @@ else:
                 AWAITING PARAMETERS
             </div>
             <div style='font-size:.75rem; color:#5a5040; letter-spacing:2px; margin-top:8px;'>
-                Configure outbreak parameters in the sidebar and press RUN PREDICTION
+                Configure outbreak parameters above and press RUN PREDICTION
             </div>
         </div>
         """, unsafe_allow_html=True)

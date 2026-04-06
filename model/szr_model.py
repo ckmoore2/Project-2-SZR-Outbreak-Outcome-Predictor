@@ -9,6 +9,12 @@ Changes from v1:
   - All v1 functions preserved for backwards compatibility
 """
 
+import sys
+import os
+# Ensure model/ directory is on the path so bare `from config import ...` works
+# regardless of whether this file is run directly or imported as model.szr_model.
+sys.path.insert(0, os.path.dirname(__file__))
+
 import numpy as np
 from scipy.integrate import odeint
 from scipy.special import expit   # numerically stable sigmoid

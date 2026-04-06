@@ -42,6 +42,8 @@ _ROOT = os.path.dirname(_HERE)
 OUT   = os.path.join(_ROOT, "data", "processed")
 os.makedirs(OUT, exist_ok=True)
 
+from utils import normalize  # shared min-max normalizer
+
 CENSUS_KEY = os.environ.get("CENSUS_API_KEY", "")
 NC_FIPS    = "37"
 
@@ -69,13 +71,6 @@ NC_COUNTIES = {
     "191":"Wayne","193":"Wilkes","195":"Wilson","197":"Yadkin","199":"Yancey",
 }
 
-
-def normalize(series):
-    """Min-max normalize a pandas Series to [0, 1]."""
-    mn, mx = series.min(), series.max()
-    if mx == mn:
-        return pd.Series(0.5, index=series.index)
-    return (series - mn) / (mx - mn)
 
 
 def census_get(dataset, variables, for_clause, key=CENSUS_KEY):
@@ -129,7 +124,7 @@ def build_population():
                 ("039","Cherokee",28612), ("135","Orange",148476),
                 ("049","Craven",103947), ("155","Robeson",124273),
                 ("027","Caldwell",83029), ("037","Chatham",74470),
-                ("089","Henderson",117417), ("011":"Avery",17557),
+                ("089","Henderson",117417), ("011","Avery",17557),
             ]
         ]
         # Fill remaining with 50000 placeholder

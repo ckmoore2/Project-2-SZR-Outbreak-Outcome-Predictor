@@ -15,7 +15,12 @@ Outputs:
   outputs/sensitivity/heatmaps.png            — visual grid
 """
 
+import sys
 import os
+# Ensure model/ directory is on the path so bare `from config import ...` and
+# `from szr_model import ...` work regardless of how this module is invoked.
+sys.path.insert(0, os.path.dirname(__file__))
+
 import itertools
 import numpy as np
 import pandas as pd

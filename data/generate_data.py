@@ -20,7 +20,10 @@ Run order:
   3. python model/train.py
 """
 
+from __future__ import annotations
+
 import os
+import sys
 import json
 import numpy as np
 import pandas as pd
@@ -28,6 +31,8 @@ from scipy.integrate import solve_ivp
 
 _HERE  = os.path.dirname(os.path.abspath(__file__))
 _ROOT  = os.path.dirname(_HERE)
+sys.path.insert(0, _ROOT)
+from model.config import HSI_WEIGHTS_NAMED as HSI_WEIGHTS  # single source of truth
 DIST_PATH = os.path.join(_ROOT, "data", "processed", "hsi_distributions.json")
 OUT_PATH  = os.path.join(_ROOT, "data", "szr_synthetic.csv")
 
@@ -57,15 +62,6 @@ FALLBACK_DIST = {
     "education_score":      {"mean": 0.50, "std": 0.14, "min": 0.10, "max": 0.92},
     "social_score":         {"mean": 0.50, "std": 0.17, "min": 0.05, "max": 0.95},
     "geo_score":            {"mean": 0.50, "std": 0.20, "min": 0.00, "max": 1.00},
-}
-
-HSI_WEIGHTS = {
-    "health_score":         0.15,
-    "mobility_score":       0.15,
-    "infrastructure_score": 0.20,
-    "education_score":      0.10,
-    "social_score":         0.25,
-    "geo_score":            0.15,
 }
 
 CONTAINMENT_THRESHOLD = 0.10   # S/N > 10% at day 180 = contained
@@ -158,7 +154,7 @@ def derive_beta_kappa(hsi, beta_base, kappa_base, a=0.3, b=0.5):
     return beta, kappa
 
 
-def main():
+def main() -> None:
     print("=" * 60)
     print("SZR Synthetic Dataset Generator v2")
     print(f"Target: {N_SAMPLES:,} scenarios → {OUT_PATH}")

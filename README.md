@@ -1,6 +1,6 @@
 # SZR Outbreak Outcome Predictor
 ### CSCI/DASC AI Topics — Project 2
-**Author:** Curtis Moore | **Course:** Dr. Hart | **Institution:** East Carolina University
+**Author:** Curtis Moore | **Institution:** East Carolina University
 
 ---
 
