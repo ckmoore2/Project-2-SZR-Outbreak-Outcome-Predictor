@@ -670,27 +670,64 @@ if run_btn:
         st.markdown("## ◈ COUNTY-LEVEL SCENARIO COMPARISON")
 
         COUNTIES = {
-            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.61},
-            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.46},
-            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.55},
-            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.60},
+            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.61, "social": 0.52, "geo": 0.48},
+            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.46, "social": 0.38, "geo": 0.42},
+            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.55, "social": 0.45, "geo": 0.78},
+            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.60, "social": 0.88, "geo": 0.51},
         }
+
+        # NC population range for density normalisation
+        _NC_MAX_POP = 1_200_000.0
 
         compare_rows = []
         for cname, cp in COUNTIES.items():
-            ct, csol = run_simulation(inputs["beta"], inputs["zeta"], inputs["alpha"],
+            # Compute composite HSI for this county using V1 weights
+            _hsi_raw = (
+                0.15 * cp["health"] +
+                0.15 * cp["mob"] +
+                0.20 * cp["infra"] +
+                0.10 * 0.50 +           # education — use NC median
+                0.25 * cp["social"] +
+                0.15 * cp["geo"]
+            )
+            _hsi = float(np.clip(_hsi_raw, 0.0, 1.0))
+
+            # Apply HSI sigmoid modifier to kappa (same logic as v2 model)
+            _kappa_mod = _sigmoid_kappa_modifier(_hsi) if use_sigmoid \
+                         else _linear_kappa_modifier(_hsi)
+            _zeta_eff  = inputs["zeta"] * _kappa_mod
+
+            # Apply density modifier to beta (v2 tract-level beta)
+            _norm_density = min(cp["pop"] / _NC_MAX_POP, 1.0)
+            _beta_eff = inputs["beta"] * (1.0 + 0.40 * _norm_density) \
+                                       * (1.0 - 0.25 * cp["mob"])
+
+            # Run simulation with county-specific effective parameters
+            ct, csol = run_simulation(_beta_eff, _zeta_eff, inputs["alpha"],
                                       cp["pop"], cp["inf"])
             cZ = csol[:, 1]
+            _peak_frac     = float(np.max(cZ) / cp["pop"])
+            _survivor_frac = float(csol[-1, 0] / cp["pop"])
+
             compare_rows.append({
-                "County": cname,
-                "Peak Z%": f"{np.max(cZ)/cp['pop']:.1%}",
-                "Peak Day": f"{ct[np.argmax(cZ)]:.0f}",
-                "Survivors": f"{csol[-1,0]/cp['pop']:.1%}",
-                "HSI-M": f"{cp['mob']:.2f}",
-                "HSI-I": f"{cp['infra']:.2f}",
-                "HSI-H": f"{cp['health']:.2f}",
+                "County":    cname,
+                "HSI":       f"{_hsi:.3f}",
+                "β_eff":     f"{_beta_eff:.4f}",
+                "ζ_eff":     f"{_zeta_eff:.4f}",
+                "Peak Z%":   f"{_peak_frac:.1%}",
+                "Peak Day":  f"{ct[np.argmax(cZ)]:.0f}",
+                "Survivors": f"{_survivor_frac:.1%}",
+                "Status":    "CONTAINED" if _survivor_frac > 0.10 else "COLLAPSE",
             })
+
         st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+        st.markdown("""
+        <div style='font-size:.7rem; color:#3a3028; margin-top:6px;'>
+        Each county runs with HSI-modified parameters: ζ_eff = ζ × sigmoid(HSI) ·
+        β_eff = β × (1 + 0.40×density) × (1 − 0.25×mobility).
+        Cumberland's military/veteran advantage (HSI-C=0.88) raises its ζ_eff
+        significantly above Wake or Pitt. Geographic advantage boosts Buncombe.
+        </div>""", unsafe_allow_html=True)
 
     # ═════════════════════════════════════════════════════════════════════════
     #  TAB 3 — SHAP
