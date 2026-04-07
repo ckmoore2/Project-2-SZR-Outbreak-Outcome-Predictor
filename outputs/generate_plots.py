@@ -1,5 +1,5 @@
 """
-Generate parity plot, SHAP importance plot, and confusion matrix for Experiment C model.
+Generate parity plot, SHAP importance plot, and confusion matrix for Experiment D model.
 """
 
 import os
@@ -44,10 +44,10 @@ X_train_sc = scaler.transform(X_train)
 X_test_sc = scaler.transform(X_test)
 
 # ---------------------------------------------------------------------------
-# Load best model (Experiment C)
+# Load best model (Experiment D)
 # ---------------------------------------------------------------------------
-print("Loading Experiment C model...")
-model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3)
+print("Loading Experiment D model...")
+model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3)
 model.load_state_dict(
     torch.load(os.path.join(OUTPUTS_DIR, "best_model.pt"),
                map_location="cpu", weights_only=True)
@@ -72,7 +72,7 @@ lims = [min(y_true_peak.min(), y_pred_peak.min()),
 ax.plot(lims, lims, "r--", linewidth=1.5, label="Perfect prediction")
 ax.set_xlabel("Actual peak zombie fraction")
 ax.set_ylabel("Predicted peak zombie fraction")
-ax.set_title("Parity Plot — Peak Zombie Fraction (Experiment C)")
+ax.set_title("Parity Plot — Peak Zombie Fraction (Experiment D)")
 ax.legend(fontsize=9)
 fig.tight_layout()
 parity_path = os.path.join(OUTPUTS_DIR, "parity_plot.png")
@@ -110,7 +110,7 @@ ax2.barh([feature_cols[i] for i in order[::-1]],
          mean_abs_shap[order[::-1]],
          color="steelblue")
 ax2.set_xlabel("Mean |SHAP value| (impact on peak zombie fraction)")
-ax2.set_title("SHAP Feature Importance — Experiment C\n(peak_zombie_fraction)")
+ax2.set_title("SHAP Feature Importance — Experiment D\n(peak_zombie_fraction)")
 fig2.tight_layout()
 shap_path = os.path.join(OUTPUTS_DIR, "shap_importance.png")
 fig2.savefig(shap_path, dpi=150)

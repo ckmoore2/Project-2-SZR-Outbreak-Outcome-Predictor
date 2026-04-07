@@ -121,7 +121,7 @@ class SZRPredictor(nn.Module):
     def __init__(self, input_dim=8, hidden_dims=None, output_dim=3, dropout=0.2):
         super().__init__()
         if hidden_dims is None:
-            hidden_dims = [64, 128]
+            hidden_dims = [128, 256, 128]
         layers = []
         prev = input_dim
         for h in hidden_dims:
@@ -140,7 +140,7 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
     try:
         state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
@@ -348,7 +348,7 @@ st.markdown("""
   </div>
   <div style='text-align:right;'>
     <div style='font-size:.6rem; color:#5a5040; letter-spacing:2px;'>MODEL</div>
-    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [64→128]</div>
+    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [128→256→128]</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
