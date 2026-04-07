@@ -39,3 +39,4 @@ data/raw/usfa-registry-NC.csv
 key.json
 .idea/
 !/.venv/
+!/CLAUDE.md
