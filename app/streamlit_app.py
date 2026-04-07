@@ -140,7 +140,7 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
     try:
         state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
