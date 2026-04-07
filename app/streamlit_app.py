@@ -814,10 +814,10 @@ if run_btn:
         st.markdown("## ◈ COUNTY-LEVEL SCENARIO COMPARISON")
 
         COUNTIES = {
-            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.61},
-            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.46},
-            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.55},
-            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.60},
+            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.65, "social": 0.52, "geo": 0.48},
+            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.48, "social": 0.38, "geo": 0.42},
+            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.49, "social": 0.50, "geo": 0.78},
+            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.64, "social": 0.92, "geo": 0.51},
         }
 
         compare_rows = []
@@ -980,7 +980,7 @@ if run_btn:
         st.markdown("---")
         st.markdown("## ◈ NEW HSI SUB-FACTORS — FETCH STATUS")
         fetch_status = [
-            {"Factor": "Hunting License Density",       "Category": "C", "Data Source": "NCWRC Annual Report",       "Status": "⚠ Manual download needed",         "Script": "fetch_category_c_extensions.py"},
+            {"Factor": "Hunting License Density",       "Category": "C", "Data Source": "ACS C24010 + RUCA proxy",    "Status": "✅ Proxy integrated — rural×harvest score", "Script": "data/rebuild_county_data.py"},
             {"Factor": "Congregation Density",           "Category": "C", "Data Source": "USDA ERS Rural Atlas",      "Status": "⚠ Skipped — model complete without", "Script": "fetch_category_c_extensions.py"},
             {"Factor": "Volunteer Fire Dept Coverage",   "Category": "C", "Data Source": "USFA Registry (1,090 depts)","Status": "✅ Integrated — real data in model", "Script": "fetch_category_c_extensions.py"},
             {"Factor": "Waterway Barrier Score",         "Category": "G", "Data Source": "USGS NHD",                  "Status": "⚠ Manual GIS download",             "Script": "fetch_category_g_extensions.py"},
@@ -989,6 +989,7 @@ if run_btn:
             {"Factor": "Agricultural Occupation Rate",   "Category": "E", "Data Source": "ACS C24010",                "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
             {"Factor": "Ham Radio License Density",      "Category": "E", "Data Source": "FCC ULS",                   "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
             {"Factor": "Physical Inactivity Rate (LPA)", "Category": "H", "Data Source": "CDC PLACES 2023 (in repo)", "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
+            {"Factor": "Age Demographics (65+)",         "Category": "H", "Data Source": "ACS S0101 (Census API)",    "Status": "✅ Integrated — real data in model", "Script": "data/raw/nc_age_demographics.csv"},
         ]
         st.dataframe(pd.DataFrame(fetch_status), use_container_width=True, hide_index=True)
         st.markdown("""

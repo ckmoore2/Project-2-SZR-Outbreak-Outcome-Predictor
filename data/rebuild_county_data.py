@@ -205,44 +205,45 @@ def build_health(pop_df):
         np.random.uniform(-0.5, 0.5, len(nursing_df))
     ).clip(0.5, 15.0)
 
-    # CDC PLACES LPA (physical inactivity) — tract-level aggregated to county median
-    lpa_path = os.path.join(_HERE, "raw", "cdc_places_inactivity.csv")
-    if os.path.exists(lpa_path):
-        lpa_raw = pd.read_csv(lpa_path, usecols=["countyfips", "data_value"])
-        lpa_raw["county_fips"] = lpa_raw["countyfips"].astype(str).str.zfill(5)
-        lpa_county = (lpa_raw.groupby("county_fips")["data_value"]
-                      .median().reset_index()
-                      .rename(columns={"data_value": "inactivity_rate"}))
-        print(f"  LPA inactivity: {len(lpa_county)} counties loaded")
+    # ACS S0101 — Age demographics (% 65 and over)
+    age_path = os.path.join(_ROOT, "data", "raw", "nc_age_demographics.csv")
+    if os.path.exists(age_path):
+        age_df = pd.read_csv(age_path)[["county_fips", "pct_65_plus"]]
+        age_df["county_fips"] = age_df["county_fips"].astype(str).str.zfill(5)
+        print(f"  Age demographics: {len(age_df)} counties, "
+              f"range {age_df['pct_65_plus'].min():.1f}% – {age_df['pct_65_plus'].max():.1f}%")
     else:
-        lpa_county = pd.DataFrame(columns=["county_fips", "inactivity_rate"])
-        print("  LPA data not found — inactivity factor skipped (fallback synthetic)")
+        print("  Age demographics: file not found — using synthetic values")
+        age_df = pd.DataFrame([
+            {"county_fips": f"37{f}", "pct_65_plus": 18.0 + np.random.uniform(-4, 4)}
+            for f in NC_COUNTIES
+        ])
 
     df = (pop_df[["county_fips", "county"]]
           .merge(obesity_df, on="county_fips", how="left")
           .merge(dis_df,     on="county_fips", how="left")
           .merge(nursing_df[["county_fips", "nursing_home_density"]], on="county_fips", how="left")
-          .merge(lpa_county, on="county_fips", how="left"))
+          .merge(age_df,     on="county_fips", how="left"))
 
     df["obesity_rate"]           = df["obesity_rate"].fillna(df["obesity_rate"].median())
     df["ambulatory_disability"]  = df["ambulatory_disability"].fillna(df["ambulatory_disability"].median())
     df["nursing_home_density"]   = df["nursing_home_density"].fillna(df["nursing_home_density"].median())
-    # Fallback: synthetic inactivity if LPA file missing or county not matched
-    _inactivity_median = df["inactivity_rate"].median()
-    if np.isnan(_inactivity_median):
-        _inactivity_median = 28.0
-    df["inactivity_rate"] = df["inactivity_rate"].fillna(_inactivity_median)
+    df["pct_65_plus"]            = df["pct_65_plus"].fillna(df["pct_65_plus"].median())
 
-    # score_H: all four factors are negative — flip so 1 = healthiest
-    # Weights: obesity 0.30, disability 0.30, nursing 0.20, inactivity 0.20
-    df["obesity_norm"]     = normalize(df["obesity_rate"])
-    df["disab_norm"]       = normalize(df["ambulatory_disability"])
-    df["nursing_norm"]     = normalize(df["nursing_home_density"])
-    df["inactivity_norm"]  = normalize(df["inactivity_rate"])
-    df["score_H"] = 1 - (df["obesity_norm"]    * 0.30 +
-                         df["disab_norm"]       * 0.30 +
-                         df["nursing_norm"]     * 0.20 +
-                         df["inactivity_norm"]  * 0.20)
+    # Normalise each factor
+    df["obesity_norm"]  = normalize(df["obesity_rate"])
+    df["disab_norm"]    = normalize(df["ambulatory_disability"])
+    df["nursing_norm"]  = normalize(df["nursing_home_density"])
+    df["age_risk_norm"] = normalize(df["pct_65_plus"])   # higher % elderly = higher risk
+
+    # All four factors are negative — higher value = worse health capacity
+    # Flip so score_H of 1.0 = healthiest county
+    df["score_H"] = 1.0 - (
+        df["obesity_norm"]  * 0.25 +
+        df["disab_norm"]    * 0.25 +
+        df["nursing_norm"]  * 0.25 +
+        df["age_risk_norm"] * 0.25
+    )
 
     out = os.path.join(OUT, "nc_county_health_scores.csv")
     df.to_csv(out, index=False)
@@ -597,13 +598,28 @@ def build_social(pop_df):
         {k: v for k, v in military_fips.items()}
     ).fillna(0.0)
 
-    # Weights: veteran 0.30, permit 0.30, vfd 0.15, harvest 0.10, military 0.15
+    # Hunting license proxy: rural counties × harvest activity
+    # Higher rural_flag and harvest_yield → more likely to have hunters
+    # rural_flag: 1 if county_fips suffix is in rural_counties set, else 0.3
+    rural_counties = {
+        "005","007","009","011","015","017","019","029","033","041","043",
+        "053","055","073","075","079","083","091","093","095","103","115",
+        "121","131","137","143","153","165","169","173","175","177","185",
+        "187","189","199",
+    }
+    df["rural_flag"] = df["county_fips"].str[-3:].apply(
+        lambda f: 1.0 if f in rural_counties else 0.3
+    )
+    df["hunting_proxy"] = normalize(df["harvest_yield"] * df["rural_flag"])
+
+    # Redistribute weights: vet 0.30, permit 0.25, harvest 0.15,
+    # military_boost 0.15, hunting_proxy 0.15
     df["final_score"] = (
-        df["vet_norm"]      * 0.30 +
-        df["permit_norm"]   * 0.30 +
-        df["vfd_norm"]      * 0.15 +
-        df["harvest_norm"]  * 0.10 +
-        df["military_boost"] * 0.15
+        df["vet_norm"]        * 0.30 +
+        df["permit_norm"]     * 0.25 +
+        df["harvest_norm"]    * 0.15 +
+        df["military_boost"]  * 0.15 +
+        df["hunting_proxy"]   * 0.15
     ).clip(0, 1)
 
     # Normalize to [0, 1]
