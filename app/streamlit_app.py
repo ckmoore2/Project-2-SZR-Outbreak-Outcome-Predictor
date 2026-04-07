@@ -867,10 +867,10 @@ if run_btn:
 
                 fig2, axes = plt.subplots(1, 2, figsize=(11, 4))
                 for ax2, sv, title, color in zip(
-                    axes,
-                    [sv_peak, sv_contain],
-                    ["Peak Zombie Fraction", "Containment Probability"],
-                    ["#cc2200", "#8db829"],
+                        axes,
+                        [sv_peak, sv_contain],
+                        ["Peak Zombie Fraction", "Containment Probability"],
+                        ["#cc2200", "#8db829"],
                 ):
                     vals  = sv.values[0]
                     order = np.argsort(np.abs(vals))[::-1]
@@ -1024,4 +1024,3 @@ else:
         st.info("Run a prediction first to view SHAP analysis.")
     with tab4:
         st.info("Run a prediction first to view model comparison charts.")
-
