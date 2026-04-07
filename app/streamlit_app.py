@@ -140,7 +140,7 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
         state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
@@ -247,28 +247,28 @@ SCENARIO_PRESETS = {
     # ── Zombie show canon ─────────────────────────────────────────────────────
     "— Select a scenario —":           None,
     "🧟 The Walking Dead":             {
-        "beta": 0.30, "zeta": 0.28, "alpha": 0.01, "initial_infected": 10,
-        "label": "β=0.30 · ζ=0.28 · Slow walkers, high removal — humans survive",
+        "beta": 2.80e-3, "zeta": 2.52e-3, "alpha": 0.90, "initial_infected": 10,
+        "label": "β=0.0028 · α=0.90 · Slow walkers, high removal — humans likely survive",
         "group": "show",
     },
     "🍄 The Last of Us":               {
-        "beta": 0.55, "zeta": 0.18, "alpha": 0.01, "initial_infected": 20,
-        "label": "β=0.55 · ζ=0.18 · Fungal spread — severe outbreak, marginal survival",
+        "beta": 6.00e-3, "zeta": 3.90e-3, "alpha": 0.65, "initial_infected": 20,
+        "label": "β=0.0060 · α=0.65 · Fungal spread, organised clickers — marginal survival",
         "group": "show",
     },
     "🌍 World War Z":                  {
-        "beta": 0.45, "zeta": 0.32, "alpha": 0.01, "initial_infected": 50,
-        "label": "β=0.45 · ζ=0.32 · Fast movers, global scale — NC likely holds",
+        "beta": 3.60e-3, "zeta": 2.88e-3, "alpha": 0.80, "initial_infected": 50,
+        "label": "β=0.0036 · α=0.80 · Fast movers, global scale — NC likely holds",
         "group": "show",
     },
     "⚡ 28 Days Later":                {
-        "beta": 0.75, "zeta": 0.10, "alpha": 0.01, "initial_infected": 5,
-        "label": "β=0.75 · ζ=0.10 · Rage virus, extreme spread — zombies win in NC",
+        "beta": 9.00e-3, "zeta": 4.50e-3, "alpha": 0.50, "initial_infected": 5,
+        "label": "β=0.0090 · α=0.50 · Rage virus, extreme spread — zombies win in NC",
         "group": "show",
     },
     "🦠 Rabies (real baseline)":       {
-        "beta": 0.05, "zeta": 0.22, "alpha": 0.01, "initial_infected": 2,
-        "label": "β=0.05 · ζ=0.22 · Real-world ceiling — humans dominate easily",
+        "beta": 0.50e-3, "zeta": 4.75e-4, "alpha": 0.95, "initial_infected": 2,
+        "label": "β=0.0005 · α=0.95 · Real-world ceiling — humans dominate easily",
         "group": "show",
     },
     # ── Operational severity levels ───────────────────────────────────────────
@@ -348,7 +348,7 @@ st.markdown("""
   </div>
   <div style='text-align:right;'>
     <div style='font-size:.6rem; color:#5a5040; letter-spacing:2px;'>MODEL</div>
-    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [128→256→128]</div>
+    <div style='font-family:"Special Elite",cursive; font-size:.9rem; color:#cc2200; letter-spacing:2px;'>SZRPredictor v2 · MLP [64→128]</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -510,7 +510,7 @@ with ctrl_right:
     run_btn = st.button("▶  RUN PREDICTION", type="primary", use_container_width=True)
     st.markdown("""
     <div style='font-size:.6rem; color:#3a3028; line-height:1.6; margin-top:6px;'>
-    Model: SZRPredictor MLP [64→128] · Dataset: szr_synthetic.csv<br>
+    Model: SZRPredictor MLP [128→256→128] · Dataset: szr_synthetic.csv<br>
     Features: β, ζ, α, N₀, Z₀, HSI-H/M/I · Split: 80/10/10 · seed=42
     </div>""", unsafe_allow_html=True)
 
@@ -814,10 +814,10 @@ if run_btn:
         st.markdown("## ◈ COUNTY-LEVEL SCENARIO COMPARISON")
 
         COUNTIES = {
-            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.65, "social": 0.52, "geo": 0.48},
-            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.48, "social": 0.38, "geo": 0.42},
-            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.49, "social": 0.50, "geo": 0.78},
-            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.64, "social": 0.92, "geo": 0.51},
+            "Wake (High Density)":       {"pop": 1117742, "inf": 50,  "mob": 0.58, "infra": 0.62, "health": 0.61},
+            "Pitt (ECU — Moderate)":     {"pop": 184226,  "inf": 5,   "mob": 0.42, "infra": 0.44, "health": 0.46},
+            "Buncombe (Rural/Terrain)":  {"pop": 274089,  "inf": 3,   "mob": 0.48, "infra": 0.52, "health": 0.55},
+            "Cumberland (Military)":     {"pop": 337093,  "inf": 10,  "mob": 0.55, "infra": 0.58, "health": 0.60},
         }
 
         compare_rows = []
@@ -980,7 +980,7 @@ if run_btn:
         st.markdown("---")
         st.markdown("## ◈ NEW HSI SUB-FACTORS — FETCH STATUS")
         fetch_status = [
-            {"Factor": "Hunting License Density",       "Category": "C", "Data Source": "ACS C24010 + RUCA proxy",    "Status": "✅ Proxy integrated — rural×harvest score", "Script": "data/rebuild_county_data.py"},
+            {"Factor": "Hunting License Density",       "Category": "C", "Data Source": "NCWRC Annual Report",       "Status": "⚠ Manual download needed",         "Script": "fetch_category_c_extensions.py"},
             {"Factor": "Congregation Density",           "Category": "C", "Data Source": "USDA ERS Rural Atlas",      "Status": "⚠ Skipped — model complete without", "Script": "fetch_category_c_extensions.py"},
             {"Factor": "Volunteer Fire Dept Coverage",   "Category": "C", "Data Source": "USFA Registry (1,090 depts)","Status": "✅ Integrated — real data in model", "Script": "fetch_category_c_extensions.py"},
             {"Factor": "Waterway Barrier Score",         "Category": "G", "Data Source": "USGS NHD",                  "Status": "⚠ Manual GIS download",             "Script": "fetch_category_g_extensions.py"},
@@ -989,7 +989,6 @@ if run_btn:
             {"Factor": "Agricultural Occupation Rate",   "Category": "E", "Data Source": "ACS C24010",                "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
             {"Factor": "Ham Radio License Density",      "Category": "E", "Data Source": "FCC ULS",                   "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
             {"Factor": "Physical Inactivity Rate (LPA)", "Category": "H", "Data Source": "CDC PLACES 2023 (in repo)", "Status": "✅ Integrated — real data in model", "Script": "fetch_category_e_extensions.py"},
-            {"Factor": "Age Demographics (65+)",         "Category": "H", "Data Source": "ACS S0101 (Census API)",    "Status": "✅ Integrated — real data in model", "Script": "data/raw/nc_age_demographics.csv"},
         ]
         st.dataframe(pd.DataFrame(fetch_status), use_container_width=True, hide_index=True)
         st.markdown("""
