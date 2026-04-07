@@ -140,7 +140,7 @@ SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "scaler.p
 
 @st.cache_resource
 def load_model():
-    model = SZRPredictor(input_dim=8, hidden_dims=[128, 256, 128], output_dim=3, dropout=0.2)
+    model = SZRPredictor(input_dim=8, hidden_dims=[64, 128], output_dim=3, dropout=0.2)
     try:
         state = torch.load(MODEL_PATH, map_location="cpu")
         model.load_state_dict(state)
@@ -585,24 +585,168 @@ if run_btn:
     sim_peak_day     = float(t_sim[np.argmax(Z)])
     sim_survive_frac = float(S[-1] / inputs["initial_population"])
 
-    # ── Status strip — shows below control panel, above tabs ─────────────────
-    status_color = "#8db829" if sim_survive_frac > 0.10 else "#cc2200"
-    status_label = "CONTAINED" if sim_survive_frac > 0.60 else \
-                   "UNSTABLE"  if sim_survive_frac > 0.10 else "COLLAPSE"
-    st.markdown(
-        f"<div style='"
-        f"background:rgba({'141,184,41' if sim_survive_frac > 0.10 else '204,34,0'},.08);"
-        f"border:1px solid {status_color}44;"
-        f"padding:8px 16px;margin-bottom:10px;"
-        f"display:flex;align-items:center;justify-content:space-between;'>"
-        f"<div style='font-size:.7rem;color:{status_color};letter-spacing:2px;'>"
-        f"◉ SIMULATION COMPLETE — STATUS: {status_label}</div>"
-        f"<div style='font-size:.7rem;color:#5a5040;font-family:Share Tech Mono,monospace;'>"
-        f"Peak {sim_peak_frac:.1%} · Day {sim_peak_day:.0f} · "
-        f"Survivors {sim_survive_frac:.1%} · β={inputs['beta']:.4f} · ζ={inputs['zeta']:.4f}"
-        f"</div></div>",
-        unsafe_allow_html=True,
-    )
+    # ── HSI composite for current inputs ─────────────────────────────────────
+    _hsi_current = float(np.clip(
+        0.15 * inputs["health_score"] +
+        0.15 * inputs["mobility_score"] +
+        0.20 * inputs["infrastructure_score"] +
+        0.10 * 0.50 +   # education — slider not exposed, use NC median
+        0.25 * 0.50 +   # social — slider not exposed, use NC median
+        0.15 * 0.50,    # geo — slider not exposed, use NC median
+        0.0, 1.0
+    ))
+    _kappa_mod    = _sigmoid_kappa_modifier(_hsi_current)
+    _zeta_eff     = inputs["zeta"] * _kappa_mod
+    _norm_density = min(inputs["initial_population"] / 1_200_000.0, 1.0)
+    _beta_eff     = inputs["beta"] * (1.0 + 0.40 * _norm_density) * (1.0 - 0.25 * inputs["mobility_score"])
+
+    # ── Outcome classification ────────────────────────────────────────────────
+    if sim_survive_frac >= 0.60:
+        _outcome_label = "CONTAINED"
+        _outcome_color = "#8db829"
+        _outcome_bg    = "rgba(141,184,41,.08)"
+        _outcome_border= "rgba(141,184,41,.35)"
+        _outcome_icon  = "◉"
+        _outcome_desc  = "Outbreak suppressed — majority of population survives"
+    elif sim_survive_frac >= 0.10:
+        _outcome_label = "UNSTABLE"
+        _outcome_color = "#d4820a"
+        _outcome_bg    = "rgba(212,130,10,.08)"
+        _outcome_border= "rgba(212,130,10,.35)"
+        _outcome_icon  = "◈"
+        _outcome_desc  = "Partial containment — significant casualties, outcome uncertain"
+    else:
+        _outcome_label = "COLLAPSE"
+        _outcome_color = "#cc2200"
+        _outcome_bg    = "rgba(204,34,0,.10)"
+        _outcome_border= "rgba(204,34,0,.40)"
+        _outcome_icon  = "☠"
+        _outcome_desc  = "Outbreak uncontrolled — population overwhelmed"
+
+    # ── Factor influence ratings ──────────────────────────────────────────────
+    def _rating(val, thresholds, labels):
+        for t, l in zip(thresholds, labels):
+            if val <= t:
+                return l
+        return labels[-1]
+
+    _spread_risk  = _rating(inputs["beta"],              [0.10, 0.35, 0.60], ["LOW","MODERATE","HIGH","EXTREME"])
+    _removal_cap  = _rating(inputs["zeta"],              [0.08, 0.18, 0.30], ["CRITICAL","LOW","MODERATE","HIGH"])
+    _mobility_inf = _rating(inputs["mobility_score"],    [0.30, 0.55, 0.75], ["POOR","MODERATE","GOOD","STRONG"])
+    _health_inf   = _rating(inputs["health_score"],      [0.30, 0.55, 0.75], ["POOR","MODERATE","GOOD","STRONG"])
+    _infra_inf    = _rating(inputs["infrastructure_score"],[0.30,0.55, 0.75], ["POOR","MODERATE","GOOD","STRONG"])
+    _seed_risk    = _rating(inputs["initial_infected"],  [5, 25, 100],       ["MINIMAL","LOW","MODERATE","HIGH"])
+    _pop_risk     = _rating(inputs["initial_population"],[50000,200000,500000],["RURAL","SMALL","MEDIUM","LARGE"])
+
+    def _factor_color(label):
+        if label in ("EXTREME","HIGH","CRITICAL","POOR"):   return "#cc2200"
+        if label in ("HIGH","MODERATE","LOW","MODERATE"):   return "#d4820a"
+        return "#8db829"
+
+    # ── HSI influence summary ─────────────────────────────────────────────────
+    _hsi_pct   = int(_hsi_current * 100)
+    _kmod_pct  = int((_kappa_mod - 1.0) * 100)
+    _kmod_sign = "+" if _kmod_pct >= 0 else ""
+    _bmod_pct  = int(((_beta_eff / inputs["beta"]) - 1.0) * 100) if inputs["beta"] > 0 else 0
+    _bmod_sign = "+" if _bmod_pct >= 0 else ""
+
+    st.markdown(f"""
+    <div style='
+        background:{_outcome_bg};
+        border:1px solid {_outcome_border};
+        border-radius:3px;
+        padding:14px 18px;
+        margin-bottom:14px;
+        font-family:"Share Tech Mono",monospace;
+    '>
+
+      <!-- Row 1: Outcome headline -->
+      <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;'>
+        <div>
+          <span style='font-family:"Special Elite",cursive;font-size:1.1rem;color:{_outcome_color};letter-spacing:4px;'>
+            {_outcome_icon} PREDICTION COMPLETE — {_outcome_label}
+          </span>
+          <span style='font-size:.65rem;color:#6b5a48;margin-left:12px;letter-spacing:1px;'>
+            {_outcome_desc}
+          </span>
+        </div>
+        <div style='font-size:.65rem;color:#5a5040;text-align:right;'>
+          Pop: {int(inputs["initial_population"]):,} · Seed: {int(inputs["initial_infected"])} infected
+        </div>
+      </div>
+
+      <!-- Row 2: Key metrics -->
+      <div style='display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px;'>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>PEAK ZOMBIE</div>
+          <div style='font-size:.95rem;color:{_outcome_color};'>{sim_peak_frac:.1%}</div>
+        </div>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>PEAK DAY</div>
+          <div style='font-size:.95rem;color:#c8bfa8;'>Day {sim_peak_day:.0f}</div>
+        </div>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>SURVIVORS</div>
+          <div style='font-size:.95rem;color:{_outcome_color};'>{sim_survive_frac:.1%}</div>
+        </div>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>HSI SCORE</div>
+          <div style='font-size:.95rem;color:#8db829;'>{_hsi_pct}/100</div>
+        </div>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>ζ MODIFIER</div>
+          <div style='font-size:.95rem;color:#8db829;'>{_kmod_sign}{_kmod_pct}% via HSI</div>
+        </div>
+        <div style='background:rgba(0,0,0,.25);padding:6px 8px;border-radius:2px;'>
+          <div style='font-size:.58rem;color:#5a5040;letter-spacing:2px;margin-bottom:2px;'>β MODIFIER</div>
+          <div style='font-size:.95rem;color:#{"cc2200" if _bmod_pct > 0 else "8db829"};'>{_bmod_sign}{_bmod_pct}% via density</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Factor influence ratings -->
+      <div style='border-top:1px solid rgba(255,255,255,.06);padding-top:8px;'>
+        <div style='font-size:.6rem;color:#5a5040;letter-spacing:2px;margin-bottom:6px;'>FACTOR INFLUENCE ANALYSIS</div>
+        <div style='display:grid;grid-template-columns:repeat(7,1fr);gap:6px;'>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>SPREAD RATE β</div>
+            <div style='font-size:.7rem;color:{_factor_color(_spread_risk)};letter-spacing:1px;'>{_spread_risk}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>β={inputs["beta"]:.4f}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>REMOVAL CAP ζ</div>
+            <div style='font-size:.7rem;color:{_factor_color(_removal_cap)};letter-spacing:1px;'>{_removal_cap}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>ζ_eff={_zeta_eff:.4f}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>MOBILITY (M)</div>
+            <div style='font-size:.7rem;color:{_factor_color(_mobility_inf)};letter-spacing:1px;'>{_mobility_inf}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>HSI-M={inputs["mobility_score"]:.2f}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>HEALTH (H)</div>
+            <div style='font-size:.7rem;color:{_factor_color(_health_inf)};letter-spacing:1px;'>{_health_inf}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>HSI-H={inputs["health_score"]:.2f}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>INFRASTRUCTURE</div>
+            <div style='font-size:.7rem;color:{_factor_color(_infra_inf)};letter-spacing:1px;'>{_infra_inf}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>HSI-I={inputs["infrastructure_score"]:.2f}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>SEED COUNT</div>
+            <div style='font-size:.7rem;color:{_factor_color(_seed_risk)};letter-spacing:1px;'>{_seed_risk}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>Z₀={int(inputs["initial_infected"])}</div>
+          </div>
+          <div>
+            <div style='font-size:.55rem;color:#4a3a28;margin-bottom:2px;'>POPULATION</div>
+            <div style='font-size:.7rem;color:#8b8070;letter-spacing:1px;'>{_pop_risk}</div>
+            <div style='font-size:.58rem;color:#4a3a28;'>N={int(inputs["initial_population"]):,}</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    """, unsafe_allow_html=True)
 
     # ═════════════════════════════════════════════════════════════════════════
     #  TAB 1 — PREDICTION
@@ -629,7 +773,7 @@ if run_btn:
 
             st.markdown("""
             <div style='font-size:.7rem; color:#3a3028; margin-top:8px;'>
-            ↑ Neural network output · Model: SZRPredictor [64→128] · Experiment C
+            ↑ Neural network output · Model: SZRPredictor [128→256→128] · Experiment D · R²=0.937
             </div>""", unsafe_allow_html=True)
         else:
             st.info("Model unavailable — displaying simulation ground truth only.")
